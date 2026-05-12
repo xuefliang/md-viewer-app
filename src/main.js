@@ -49,9 +49,18 @@ let tabs = [];
 let activeTabId = null;
 let nextTabId = 1;
 let workspace = null;
+let looseFiles = [];
 let contextTabId = null;
 let contextWorkspacePath = null;
 const collapsedWorkspaceDirs = new Set();
+const SIDEBAR_WIDTH_KEY = "md-viewer-sidebar-width";
+const OUTLINE_HEIGHT_KEY = "md-viewer-outline-height";
+const SIDEBAR_MIN_WIDTH = 248;
+const SIDEBAR_MAX_WIDTH = 560;
+const READER_MIN_WIDTH = 420;
+const WORKSPACE_MIN_HEIGHT = 132;
+const OUTLINE_MIN_HEIGHT = 96;
+const RESIZE_KEYBOARD_STEP = 18;
 const BLOCK_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -113,11 +122,6 @@ function getFileName(path) {
   return path ? path.split("/").pop() : "";
 }
 
-function getDirName(path) {
-  if (!path || !path.includes("/")) return "";
-  return path.split("/").slice(0, -1).join("/");
-}
-
 function getBaseName(path) {
   if (!path) return "";
   return path.split("/").filter(Boolean).pop() || path;
@@ -126,6 +130,21 @@ function getBaseName(path) {
 function joinPath(base, relative) {
   if (!relative) return base;
   return `${base.replace(/\/+$/, "")}/${relative.replace(/^\/+/, "")}`;
+}
+
+function isPathInsideRoot(path, root) {
+  return Boolean(path && root && (path === root || path.startsWith(`${root.replace(/\/+$/, "")}/`)));
+}
+
+function getPathRelativeToRoot(path, root) {
+  const normalizedRoot = root.replace(/\/+$/, "");
+  return path.startsWith(`${normalizedRoot}/`) ? path.slice(normalizedRoot.length + 1) : getFileName(path);
+}
+
+function clampSize(value, min, max) {
+  const numeric = Number.parseFloat(value);
+  if (!Number.isFinite(numeric)) return min;
+  return Math.min(Math.max(numeric, min), max);
 }
 
 function isMarkdownPath(path) {
@@ -221,12 +240,50 @@ function createWorkspaceTree(files) {
 }
 
 function ensureWorkspaceDirExpanded(relativePath) {
+  collapsedWorkspaceDirs.delete("");
   const parts = relativePath.split("/").filter(Boolean).slice(0, -1);
   let current = "";
   parts.forEach((part) => {
     current = current ? `${current}/${part}` : part;
     collapsedWorkspaceDirs.delete(current);
   });
+}
+
+function renderFileTreeItem(file, parentList, depth, activePath) {
+  const item = document.createElement("li");
+  item.className = "tree-item file-item";
+  item.style.setProperty("--tree-depth", depth);
+  if (file.path === activePath) item.classList.add("active");
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "file-row";
+  button.dataset.workspaceFile = file.path;
+  button.title = file.relative_path || file.name;
+
+  const spacer = document.createElement("span");
+  spacer.className = "tree-twisty spacer";
+  button.appendChild(spacer);
+
+  const icon = document.createElement("span");
+  icon.className = "file-icon";
+  button.appendChild(icon);
+
+  const name = document.createElement("span");
+  name.className = "tree-name";
+  name.textContent = file.name || file.relative_path;
+  button.appendChild(name);
+
+  item.appendChild(button);
+  parentList.appendChild(item);
+}
+
+function renderEmptyTreeItem(parentList, text, depth = 0) {
+  const item = document.createElement("li");
+  item.className = "file-list-empty indented";
+  item.style.setProperty("--tree-depth", depth);
+  item.textContent = text;
+  parentList.appendChild(item);
 }
 
 function renderWorkspaceTreeNode(node, parentList, depth, activePath) {
@@ -272,64 +329,85 @@ function renderWorkspaceTreeNode(node, parentList, depth, activePath) {
   });
 
   files.forEach((file) => {
-    const item = document.createElement("li");
-    item.className = "tree-item file-item";
-    item.style.setProperty("--tree-depth", depth);
-    if (file.path === activePath) item.classList.add("active");
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "file-row";
-    button.dataset.workspaceFile = file.path;
-    button.title = file.relative_path || file.name;
-
-    const spacer = document.createElement("span");
-    spacer.className = "tree-twisty spacer";
-    button.appendChild(spacer);
-
-    const icon = document.createElement("span");
-    icon.className = "file-icon";
-    button.appendChild(icon);
-
-    const name = document.createElement("span");
-    name.className = "tree-name";
-    name.textContent = file.name || file.relative_path;
-    button.appendChild(name);
-
-    item.appendChild(button);
-    parentList.appendChild(item);
+    renderFileTreeItem(file, parentList, depth, activePath);
   });
 }
 
+function renderWorkspaceRoot(parentList, activePath) {
+  const item = document.createElement("li");
+  item.className = "tree-item folder-item workspace-root-item";
+  item.style.setProperty("--tree-depth", 0);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "folder-row workspace-root-row";
+  button.dataset.workspaceDir = "";
+  button.title = workspace.root;
+
+  const isCollapsed = collapsedWorkspaceDirs.has("");
+  const twisty = document.createElement("span");
+  twisty.className = "tree-twisty";
+  twisty.textContent = isCollapsed ? "›" : "⌄";
+  button.appendChild(twisty);
+
+  const icon = document.createElement("span");
+  icon.className = "folder-icon";
+  button.appendChild(icon);
+
+  const name = document.createElement("span");
+  name.className = "tree-name";
+  name.textContent = workspace.name || getBaseName(workspace.root) || "Workspace";
+  button.appendChild(name);
+
+  const count = document.createElement("span");
+  count.className = "tree-count";
+  count.textContent = String(workspace.files.length);
+  button.appendChild(count);
+
+  item.appendChild(button);
+  parentList.appendChild(item);
+
+  if (isCollapsed) return;
+
+  if (!workspace.files.length) {
+    renderEmptyTreeItem(parentList, "No Markdown files found", 1);
+    return;
+  }
+
+  renderWorkspaceTreeNode(createWorkspaceTree(workspace.files), parentList, 1, activePath);
+}
+
+function renderLooseFiles(activePath) {
+  const section = document.getElementById("loose-files-section");
+  const fileList = document.getElementById("loose-file-list");
+  if (!section || !fileList) return;
+
+  fileList.innerHTML = "";
+  section.hidden = looseFiles.length === 0;
+  if (!looseFiles.length) return;
+
+  looseFiles
+    .slice()
+    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
+    .forEach((file) => renderFileTreeItem(file, fileList, 0, activePath));
+}
+
 function renderWorkspaceFiles() {
-  const workspaceName = document.getElementById("workspace-name");
-  const workspaceMeta = document.getElementById("workspace-meta");
   const fileList = document.getElementById("workspace-file-list");
-  if (!workspaceName || !workspaceMeta || !fileList) return;
+  if (!fileList) return;
 
   fileList.innerHTML = "";
   if (!workspace) {
-    workspaceName.textContent = "No workspace";
-    workspaceMeta.textContent = "Drop a folder to browse Markdown files";
-    const item = document.createElement("li");
-    item.className = "file-list-empty";
-    item.textContent = "Drop a folder or Markdown file";
-    fileList.appendChild(item);
+    if (!looseFiles.length) {
+      renderEmptyTreeItem(fileList, "Drop a folder or Markdown file");
+    }
+    renderLooseFiles(getActiveTab()?.path);
     return;
   }
 
-  workspaceName.textContent = workspace.name || getBaseName(workspace.root) || "Workspace";
-  workspaceMeta.textContent = `${workspace.files.length} Markdown file${workspace.files.length === 1 ? "" : "s"}`;
-
-  if (!workspace.files.length) {
-    const item = document.createElement("li");
-    item.className = "file-list-empty";
-    item.textContent = "No Markdown files found";
-    fileList.appendChild(item);
-    return;
-  }
-
-  renderWorkspaceTreeNode(createWorkspaceTree(workspace.files), fileList, 0, getActiveTab()?.path);
+  const activePath = getActiveTab()?.path;
+  renderWorkspaceRoot(fileList, activePath);
+  renderLooseFiles(activePath);
 }
 
 function setWorkspace(payload) {
@@ -339,28 +417,33 @@ function setWorkspace(payload) {
     name: payload.name,
     files: payload.files || [],
   };
+  looseFiles = looseFiles.filter((file) => !isPathInsideRoot(file.path, workspace.root));
   renderWorkspaceFiles();
 }
 
-function ensureFileInWorkspace(path) {
+function upsertLooseFile(path) {
+  if (looseFiles.some((file) => file.path === path)) return;
+  looseFiles.push({
+    path,
+    name: getFileName(path),
+    relative_path: getFileName(path),
+  });
+}
+
+function ensureFileTracked(path) {
   if (!isMarkdownPath(path)) return;
 
-  if (!workspace) {
-    const dir = getDirName(path);
-    workspace = {
-      root: dir,
-      name: dir ? getBaseName(dir) : "Open files",
-      files: [],
-    };
+  if (!workspace || !isPathInsideRoot(path, workspace.root)) {
+    upsertLooseFile(path);
+    renderWorkspaceFiles();
+    return;
   }
 
   if (!workspace.files.some((file) => file.path === path)) {
     workspace.files.push({
       path,
       name: getFileName(path),
-      relative_path: workspace.root && path.startsWith(`${workspace.root}/`)
-        ? path.slice(workspace.root.length + 1)
-        : getFileName(path),
+      relative_path: getPathRelativeToRoot(path, workspace.root),
     });
     workspace.files.sort((a, b) =>
       a.relative_path.toLowerCase().localeCompare(b.relative_path.toLowerCase()),
@@ -431,7 +514,7 @@ function switchToTab(tabId) {
 }
 
 function createTab(path, content) {
-  ensureFileInWorkspace(path);
+  ensureFileTracked(path);
 
   const existing = getTabByPath(path);
   if (existing) {
@@ -604,16 +687,16 @@ function initContextMenus() {
       return;
     }
 
-    const fileList = document.getElementById("workspace-file-list");
+    const workspaceBrowser = document.getElementById("workspace-browser");
     const fileEl = e.target.closest("[data-workspace-file]");
-    if (fileEl && fileList?.contains(fileEl)) {
+    if (fileEl && workspaceBrowser?.contains(fileEl)) {
       hideTabContextMenu();
       showWorkspaceContextMenu(fileEl.dataset.workspaceFile, e.clientX, e.clientY);
       return;
     }
 
     const dirEl = e.target.closest("[data-workspace-dir]");
-    if (dirEl && fileList?.contains(dirEl) && workspace?.root) {
+    if (dirEl && workspaceBrowser?.contains(dirEl) && workspace?.root) {
       hideTabContextMenu();
       showWorkspaceContextMenu(joinPath(workspace.root, dirEl.dataset.workspaceDir), e.clientX, e.clientY);
       return;
@@ -1156,16 +1239,16 @@ async function refreshWorkspace() {
 }
 
 function initWorkspaceNavigation() {
-  const fileList = document.getElementById("workspace-file-list");
+  const workspaceBrowser = document.getElementById("workspace-browser");
   const openButton = document.getElementById("open-workspace-btn");
   const refreshButton = document.getElementById("refresh-workspace-btn");
 
   openButton?.addEventListener("click", chooseWorkspace);
   refreshButton?.addEventListener("click", refreshWorkspace);
 
-  if (!fileList) return;
+  if (!workspaceBrowser) return;
 
-  fileList.addEventListener("click", async (e) => {
+  workspaceBrowser.addEventListener("click", async (e) => {
     const dirButton = e.target.closest("[data-workspace-dir]");
     if (dirButton) {
       const dir = dirButton.dataset.workspaceDir;
@@ -1195,6 +1278,158 @@ function initTabScrolling() {
     e.preventDefault();
     list.scrollLeft += delta;
   }, { passive: false });
+}
+
+function getSidebarWidthBounds() {
+  const maxWidth = Math.max(
+    SIDEBAR_MIN_WIDTH,
+    Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - READER_MIN_WIDTH),
+  );
+
+  return {
+    min: SIDEBAR_MIN_WIDTH,
+    max: maxWidth,
+  };
+}
+
+function setSidebarWidth(width, { persist = true } = {}) {
+  const shell = document.getElementById("app-shell");
+  if (!shell) return;
+
+  const bounds = getSidebarWidthBounds();
+  const nextWidth = clampSize(width, bounds.min, bounds.max);
+  shell.style.setProperty("--side-panel-width", `${Math.round(nextWidth)}px`);
+
+  if (persist) {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(Math.round(nextWidth)));
+  }
+}
+
+function getOutlineHeightBounds() {
+  const workspaceSection = document.getElementById("workspace-section");
+  const outlineSection = document.getElementById("outline-section");
+  if (!workspaceSection || !outlineSection) {
+    return { min: OUTLINE_MIN_HEIGHT, max: OUTLINE_MIN_HEIGHT };
+  }
+
+  const workspaceHeight = workspaceSection.getBoundingClientRect().height;
+  const outlineHeight = outlineSection.getBoundingClientRect().height;
+  const adjustableHeight = workspaceHeight + outlineHeight;
+
+  return {
+    min: OUTLINE_MIN_HEIGHT,
+    max: Math.max(OUTLINE_MIN_HEIGHT, adjustableHeight - WORKSPACE_MIN_HEIGHT),
+  };
+}
+
+function setOutlineHeight(height, { persist = true } = {}) {
+  const sidePanel = document.getElementById("side-panel");
+  if (!sidePanel) return;
+
+  const bounds = getOutlineHeightBounds();
+  const nextHeight = clampSize(height, bounds.min, bounds.max);
+  sidePanel.style.setProperty("--outline-panel-height", `${Math.round(nextHeight)}px`);
+
+  if (persist) {
+    localStorage.setItem(OUTLINE_HEIGHT_KEY, String(Math.round(nextHeight)));
+  }
+}
+
+function startResize(className, onMove) {
+  document.body.classList.add(className);
+
+  const stopResize = () => {
+    document.body.classList.remove(className);
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", stopResize);
+    document.removeEventListener("pointercancel", stopResize);
+  };
+
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", stopResize);
+  document.addEventListener("pointercancel", stopResize);
+}
+
+function initResizablePanels() {
+  const sidebarResizer = document.getElementById("sidebar-resizer");
+  const outlineResizer = document.getElementById("outline-resizer");
+
+  const savedSidebarWidth = Number.parseFloat(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+  if (Number.isFinite(savedSidebarWidth)) {
+    setSidebarWidth(savedSidebarWidth, { persist: false });
+  }
+
+  requestAnimationFrame(() => {
+    const savedOutlineHeight = Number.parseFloat(localStorage.getItem(OUTLINE_HEIGHT_KEY));
+    if (Number.isFinite(savedOutlineHeight)) {
+      setOutlineHeight(savedOutlineHeight, { persist: false });
+    }
+  });
+
+  sidebarResizer?.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+
+    const sidePanel = document.getElementById("side-panel");
+    const startX = e.clientX;
+    const startWidth = sidePanel?.getBoundingClientRect().width || SIDEBAR_MIN_WIDTH;
+
+    startResize("is-resizing-sidebar", (moveEvent) => {
+      setSidebarWidth(startWidth + moveEvent.clientX - startX);
+    });
+  });
+
+  sidebarResizer?.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+
+    const sidePanel = document.getElementById("side-panel");
+    const currentWidth = sidePanel?.getBoundingClientRect().width || SIDEBAR_MIN_WIDTH;
+    setSidebarWidth(currentWidth + (e.key === "ArrowRight" ? RESIZE_KEYBOARD_STEP : -RESIZE_KEYBOARD_STEP));
+  });
+
+  sidebarResizer?.addEventListener("dblclick", () => {
+    document.getElementById("app-shell")?.style.removeProperty("--side-panel-width");
+    localStorage.removeItem(SIDEBAR_WIDTH_KEY);
+  });
+
+  outlineResizer?.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+
+    const outlineSection = document.getElementById("outline-section");
+    const startY = e.clientY;
+    const startHeight = outlineSection?.getBoundingClientRect().height || OUTLINE_MIN_HEIGHT;
+
+    startResize("is-resizing-outline", (moveEvent) => {
+      setOutlineHeight(startHeight - (moveEvent.clientY - startY));
+    });
+  });
+
+  outlineResizer?.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+
+    const outlineSection = document.getElementById("outline-section");
+    const currentHeight = outlineSection?.getBoundingClientRect().height || OUTLINE_MIN_HEIGHT;
+    setOutlineHeight(currentHeight + (e.key === "ArrowUp" ? RESIZE_KEYBOARD_STEP : -RESIZE_KEYBOARD_STEP));
+  });
+
+  outlineResizer?.addEventListener("dblclick", () => {
+    document.getElementById("side-panel")?.style.removeProperty("--outline-panel-height");
+    localStorage.removeItem(OUTLINE_HEIGHT_KEY);
+  });
+
+  let resizeFrame = 0;
+  window.addEventListener("resize", () => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      const sidePanel = document.getElementById("side-panel");
+      const outlineSection = document.getElementById("outline-section");
+      if (sidePanel) setSidebarWidth(sidePanel.getBoundingClientRect().width, { persist: false });
+      if (outlineSection) setOutlineHeight(outlineSection.getBoundingClientRect().height, { persist: false });
+    });
+  });
 }
 
 function isBlockNode(node) {
@@ -1459,6 +1694,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initWorkspaceNavigation();
   initContextMenus();
   initTabScrolling();
+  initResizablePanels();
 
   const tabBar = document.getElementById("tab-bar");
 
