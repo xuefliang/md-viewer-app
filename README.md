@@ -22,6 +22,14 @@
 - 支持侧边栏和目录区域拖拽调整大小
 - 支持在 Finder 中显示文件或目录
 
+## 截图
+
+![Workspace](docs/screenshots/workspace.png)
+
+![Academic Theme](docs/screenshots/academic-theme.png)
+
+![Export Menu](docs/screenshots/export-menu.png)
+
 ## 开发
 
 ```bash

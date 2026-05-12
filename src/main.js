@@ -19,10 +19,15 @@ import {
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { exportDOCX } from "./docx-exporter.js";
 
-const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
-const { getCurrentWebviewWindow } = window.__TAURI__.webviewWindow;
-const { getCurrentWindow } = window.__TAURI__.window;
+const searchParams = new URLSearchParams(window.location.search);
+const isScreenshotDemo = searchParams.get("demo") === "screenshot";
+const isTauriRuntime = Boolean(window.__TAURI__?.core);
+const invoke = window.__TAURI__?.core?.invoke ?? (async () => {
+  throw new Error("Tauri runtime is unavailable.");
+});
+const listen = window.__TAURI__?.event?.listen ?? (() => {});
+const getCurrentWebviewWindow = window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow ?? (() => null);
+const getCurrentWindow = window.__TAURI__?.window?.getCurrentWindow ?? (() => ({ startDragging() {} }));
 
 const md = markdownit({
   html: true,
@@ -61,6 +66,83 @@ const READER_MIN_WIDTH = 420;
 const WORKSPACE_MIN_HEIGHT = 132;
 const OUTLINE_MIN_HEIGHT = 96;
 const RESIZE_KEYBOARD_STEP = 18;
+const SCREENSHOT_DEMO_ROOT = "/Users/demo/Documents/Markdown Library";
+const SCREENSHOT_DEMO_FILES = [
+  {
+    path: `${SCREENSHOT_DEMO_ROOT}/README.md`,
+    name: "README.md",
+    relative_path: "README.md",
+  },
+  {
+    path: `${SCREENSHOT_DEMO_ROOT}/Research/Markdown Reader Notes.md`,
+    name: "Markdown Reader Notes.md",
+    relative_path: "Research/Markdown Reader Notes.md",
+  },
+  {
+    path: `${SCREENSHOT_DEMO_ROOT}/Research/Export Checklist.md`,
+    name: "Export Checklist.md",
+    relative_path: "Research/Export Checklist.md",
+  },
+  {
+    path: `${SCREENSHOT_DEMO_ROOT}/Writing/Academic Theme.md`,
+    name: "Academic Theme.md",
+    relative_path: "Writing/Academic Theme.md",
+  },
+  {
+    path: `${SCREENSHOT_DEMO_ROOT}/Writing/Technical Documentation.md`,
+    name: "Technical Documentation.md",
+    relative_path: "Writing/Technical Documentation.md",
+  },
+  {
+    path: `${SCREENSHOT_DEMO_ROOT}/Archive/Release Notes.md`,
+    name: "Release Notes.md",
+    relative_path: "Archive/Release Notes.md",
+  },
+];
+const SCREENSHOT_DEMO_DOCS = {
+  [`${SCREENSHOT_DEMO_ROOT}/Writing/Technical Documentation.md`]: `# Markdown Reader Workspace
+
+MD Viewer is designed for reading Markdown collections without opening a full editor. Drop a folder into the window, browse Markdown files from the left explorer, and keep related documents open in tabs.
+
+## Reading Flow
+
+- Open a folder once and move between Markdown files quickly.
+- Keep reference notes, drafts, and documentation in separate tabs.
+- Use the document outline to jump through long files.
+- Adjust the explorer and outline panels when a workspace gets dense.
+
+## Workspace Layout
+
+| Area | Purpose |
+| --- | --- |
+| Files | Browse Markdown documents by folder |
+| Tabs | Switch between open documents |
+| Outline | Navigate headings in the active document |
+
+## Example
+
+\`\`\`js
+const reader = createMarkdownReader({
+  workspace: "Markdown Library",
+  theme: "Technical Documentation",
+});
+\`\`\`
+
+The interface stays quiet so the document remains the primary surface.`,
+  [`${SCREENSHOT_DEMO_ROOT}/Writing/Academic Theme.md`]: `# Literature Notes
+
+This view is optimized for long-form reading. Each Markdown document can keep its own theme, which makes it practical to review technical notes, paper drafts, and reading summaries side by side.
+
+## Summary
+
+Markdown is often used as a lightweight writing format, but reading large folders of notes inside a code editor can add unnecessary visual weight. A dedicated reader keeps the navigation model while reducing the rest of the interface.
+
+## Observations
+
+1. Folder-based browsing is still useful for personal knowledge bases.
+2. Tabs make comparison and cross-reading faster.
+3. Export support keeps the reading workflow connected to sharing and publishing.`,
+};
 const BLOCK_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -461,6 +543,50 @@ function updateSidePanel() {
   if (!activeTab) {
     renderDocumentOutline();
   }
+}
+
+function initScreenshotDemo() {
+  const shell = document.getElementById("app-shell");
+  const sidePanel = document.getElementById("side-panel");
+  shell?.style.setProperty("--side-panel-width", "350px");
+  sidePanel?.style.setProperty("--outline-panel-height", "230px");
+
+  setWorkspace({
+    root: SCREENSHOT_DEMO_ROOT,
+    name: "Markdown Library",
+    files: SCREENSHOT_DEMO_FILES,
+  });
+
+  looseFiles = [
+    {
+      path: "/Users/demo/Downloads/meeting-notes.md",
+      name: "meeting-notes.md",
+      relative_path: "meeting-notes.md",
+    },
+    {
+      path: "/Users/demo/Desktop/release-plan.md",
+      name: "release-plan.md",
+      relative_path: "release-plan.md",
+    },
+  ];
+
+  createTab(
+    `${SCREENSHOT_DEMO_ROOT}/Writing/Technical Documentation.md`,
+    SCREENSHOT_DEMO_DOCS[`${SCREENSHOT_DEMO_ROOT}/Writing/Technical Documentation.md`],
+  );
+  const technicalTab = getActiveTab();
+  if (technicalTab) technicalTab.themeId = "technical";
+
+  createTab(
+    `${SCREENSHOT_DEMO_ROOT}/Writing/Academic Theme.md`,
+    SCREENSHOT_DEMO_DOCS[`${SCREENSHOT_DEMO_ROOT}/Writing/Academic Theme.md`],
+  );
+  const academicTab = getActiveTab();
+  if (academicTab) academicTab.themeId = "academic";
+
+  if (technicalTab) switchToTab(technicalTab.id);
+
+  document.body.dataset.screenshotReady = "true";
 }
 
 function getTabByPath(path) {
@@ -1725,35 +1851,44 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (tabEl) closeTab(tabEl.dataset.tabId);
   });
 
-  listen("load-file", (event) => {
-    const { path, content } = event.payload;
-    createTab(path, content);
-  });
+  if (isScreenshotDemo) {
+    initScreenshotDemo();
+    return;
+  }
 
-  listen("file-changed", (event) => {
-    const { path, content } = event.payload;
-    const tab = getTabByPath(path);
-    if (!tab) return;
-    tab.content = content;
-    if (tab.id === activeTabId) {
-      renderMarkdown(content);
-      updateSidePanel();
-    }
-  });
+  if (isTauriRuntime) {
+    listen("load-file", (event) => {
+      const { path, content } = event.payload;
+      createTab(path, content);
+    });
 
-  const webview = getCurrentWebviewWindow();
-  webview.onDragDropEvent(async (event) => {
-    if (event.payload.type === "drop" && event.payload.paths.length > 0) {
-      for (const path of event.payload.paths) {
-        await handleDroppedPath(path);
+    listen("file-changed", (event) => {
+      const { path, content } = event.payload;
+      const tab = getTabByPath(path);
+      if (!tab) return;
+      tab.content = content;
+      if (tab.id === activeTabId) {
+        renderMarkdown(content);
+        updateSidePanel();
       }
-    }
-  });
+    });
 
-  try {
-    const initial = await invoke("get_initial_file");
-    if (initial) {
-      createTab(initial.path, initial.content);
-    }
-  } catch (_) {}
+    const webview = getCurrentWebviewWindow();
+    webview?.onDragDropEvent(async (event) => {
+      if (event.payload.type === "drop" && event.payload.paths.length > 0) {
+        for (const path of event.payload.paths) {
+          await handleDroppedPath(path);
+        }
+      }
+    });
+
+    try {
+      const initial = await invoke("get_initial_file");
+      if (initial) {
+        createTab(initial.path, initial.content);
+      }
+    } catch (_) {}
+  } else {
+    document.body.dataset.screenshotReady = "true";
+  }
 });
