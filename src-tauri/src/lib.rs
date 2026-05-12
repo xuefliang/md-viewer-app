@@ -1,7 +1,8 @@
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
@@ -11,9 +12,53 @@ struct FilePayload {
     content: String,
 }
 
+#[derive(Clone, Serialize)]
+struct MarkdownFileEntry {
+    path: String,
+    name: String,
+    relative_path: String,
+}
+
+#[derive(Clone, Serialize)]
+struct WorkspacePayload {
+    root: String,
+    name: String,
+    files: Vec<MarkdownFileEntry>,
+}
+
 struct AppState {
     current_file: Mutex<Option<PathBuf>>,
     watched_files: Mutex<HashSet<PathBuf>>,
+}
+
+fn is_markdown_file(path: &Path) -> bool {
+    path.extension().map_or(false, |ext| {
+        matches!(
+            ext.to_string_lossy().to_ascii_lowercase().as_str(),
+            "md" | "markdown" | "mdx" | "mkd"
+        )
+    })
+}
+
+fn should_skip_dir(path: &Path) -> bool {
+    let Some(name) = path.file_name().map(|name| name.to_string_lossy()) else {
+        return false;
+    };
+
+    if name.starts_with('.') {
+        return true;
+    }
+
+    matches!(
+        name.as_ref(),
+        ".git" | ".pnpm-store" | "dist" | "dist-ssr" | "node_modules" | "target"
+    )
+}
+
+fn should_skip_file(path: &Path) -> bool {
+    path.file_name()
+        .map(|name| name.to_string_lossy().starts_with('.'))
+        .unwrap_or(false)
 }
 
 fn read_md_file(path: &PathBuf) -> Result<FilePayload, String> {
@@ -52,10 +97,129 @@ fn open_file(
     Ok(payload)
 }
 
+fn collect_markdown_files(
+    root: &Path,
+    dir: &Path,
+    files: &mut Vec<MarkdownFileEntry>,
+) -> Result<(), String> {
+    if files.len() >= 1000 {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(dir).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            if !should_skip_dir(&path) {
+                collect_markdown_files(root, &path, files)?;
+            }
+            continue;
+        }
+
+        if !path.is_file() || should_skip_file(&path) || !is_markdown_file(&path) {
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .to_string();
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| relative.clone());
+
+        files.push(MarkdownFileEntry {
+            path: path.to_string_lossy().to_string(),
+            name,
+            relative_path: relative,
+        });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn list_markdown_files(path: String) -> Result<WorkspacePayload, String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("Path not found: {}", path));
+    }
+
+    let root = if path_buf.is_dir() {
+        path_buf.clone()
+    } else {
+        path_buf
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| format!("No parent directory: {}", path))?
+    };
+
+    let mut files = Vec::new();
+    if path_buf.is_file() {
+        if !should_skip_file(&path_buf) && is_markdown_file(&path_buf) {
+            let relative = path_buf
+                .strip_prefix(&root)
+                .unwrap_or(&path_buf)
+                .to_string_lossy()
+                .to_string();
+            let name = path_buf
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| relative.clone());
+            files.push(MarkdownFileEntry {
+                path: path_buf.to_string_lossy().to_string(),
+                name,
+                relative_path: relative,
+            });
+        }
+    } else if !should_skip_dir(&path_buf) {
+        collect_markdown_files(&root, &root, &mut files)?;
+    }
+
+    files.sort_by(|a, b| {
+        a.relative_path
+            .to_ascii_lowercase()
+            .cmp(&b.relative_path.to_ascii_lowercase())
+    });
+
+    Ok(WorkspacePayload {
+        root: root.to_string_lossy().to_string(),
+        name: root
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| root.to_string_lossy().to_string()),
+        files,
+    })
+}
+
 #[tauri::command]
 fn write_export_file(path: String, contents: Vec<u8>) -> Result<(), String> {
     let path_buf = PathBuf::from(path);
     fs::write(&path_buf, contents).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn reveal_in_finder(path: String) -> Result<(), String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("Path not found: {}", path));
+    }
+
+    let status = Command::new("open")
+        .arg("-R")
+        .arg(&path_buf)
+        .status()
+        .map_err(|e| e.to_string())?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Failed to reveal in Finder: {}", path))
+    }
 }
 
 fn open_file_in_window(app: &tauri::AppHandle, path: PathBuf) {
@@ -111,7 +275,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_initial_file,
             open_file,
-            write_export_file
+            list_markdown_files,
+            write_export_file,
+            reveal_in_finder
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();

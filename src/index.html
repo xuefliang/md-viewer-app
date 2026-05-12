@@ -9,18 +9,70 @@
     <script type="module" src="/main.js" defer></script>
   </head>
   <body data-theme="default">
-    <div id="tab-bar">
-      <div id="tab-list"></div>
-      <select id="theme-select"></select>
-      <button id="typography-btn" title="主题字号" aria-label="主题字号">Aa</button>
-      <div id="export-wrapper">
-        <button id="export-btn" disabled>导出 ▾</button>
-        <div id="export-menu" class="hidden">
-          <button data-format="html">导出 HTML</button>
-          <button data-format="docx">导出 DOCX</button>
-          <button data-format="print">打印 / PDF</button>
+    <div id="app-shell">
+      <aside id="side-panel" aria-label="文档信息">
+        <div class="panel-header">
+          <h1>Markdown Reader</h1>
         </div>
-      </div>
+        <section id="workspace-section" aria-label="Markdown 文件">
+          <div class="workspace-header">
+            <div class="workspace-title">
+              <span class="section-title">Files</span>
+              <strong id="workspace-name">No workspace</strong>
+              <span id="workspace-meta">Drop a folder to browse Markdown files</span>
+            </div>
+            <div class="workspace-actions">
+              <button id="open-workspace-btn" type="button" title="打开目录" aria-label="打开目录">+</button>
+              <button id="refresh-workspace-btn" type="button" title="刷新目录" aria-label="刷新目录">↻</button>
+            </div>
+          </div>
+          <ol id="workspace-file-list" class="file-list">
+            <li class="file-list-empty">Drop a folder or Markdown file</li>
+          </ol>
+        </section>
+        <section id="outline-section" aria-label="文档目录">
+          <div class="section-title">Document Outline</div>
+          <ol id="document-outline" class="outline-list">
+            <li class="outline-empty">Open a markdown file</li>
+          </ol>
+        </section>
+      </aside>
+
+      <main id="reader-pane">
+        <div id="tab-bar">
+          <div id="tab-list"></div>
+          <div id="toolbar-actions">
+            <select id="theme-select" aria-label="主题"></select>
+            <button id="typography-btn" title="主题字号" aria-label="主题字号">Aa</button>
+            <div id="export-wrapper">
+              <button id="export-btn" disabled>Export ▾</button>
+              <div id="export-menu" class="hidden">
+                <button data-format="html">导出 HTML</button>
+                <button data-format="docx">导出 DOCX</button>
+                <button data-format="print">打印 / PDF</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="reader-content">
+          <div id="empty-state">
+            <div class="empty-icon">MD</div>
+            <p>拖拽 Markdown 文件或目录到窗口打开</p>
+            <p class="hint">拖入目录后，可以从左侧列表选择文档阅读</p>
+          </div>
+          <article id="markdown-content" class="markdown-body" style="display:none;"></article>
+        </div>
+      </main>
+    </div>
+    <div id="tab-context-menu" class="context-menu hidden" role="menu" aria-label="标签页菜单">
+      <button type="button" data-tab-action="close-current">关闭当前标签页</button>
+      <button type="button" data-tab-action="close-left">关闭左侧标签页</button>
+      <button type="button" data-tab-action="close-right">关闭右侧标签页</button>
+      <div class="context-menu-separator"></div>
+      <button type="button" data-tab-action="close-all">关闭全部标签页</button>
+    </div>
+    <div id="workspace-context-menu" class="context-menu hidden" role="menu" aria-label="文件菜单">
+      <button type="button" data-workspace-action="reveal">在 Finder 中显示</button>
     </div>
     <div id="settings-backdrop" class="hidden">
       <section id="typography-dialog" role="dialog" aria-modal="true" aria-labelledby="typography-title">
@@ -44,11 +96,5 @@
         </footer>
       </section>
     </div>
-    <div id="empty-state">
-      <div class="empty-icon">📄</div>
-      <p>拖拽 .md 文件到窗口打开</p>
-      <p class="hint">或通过右键菜单 "打开方式" 选择 MD Viewer</p>
-    </div>
-    <article id="markdown-content" class="markdown-body" style="display:none;"></article>
   </body>
 </html>

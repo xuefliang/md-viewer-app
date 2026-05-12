@@ -16,7 +16,7 @@ import {
   getTypographyValuesForScope,
   saveThemeTypographySettings,
 } from "./theme-settings.js";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { exportDOCX } from "./docx-exporter.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -42,11 +42,16 @@ const contentEl = () => document.getElementById("markdown-content");
 const emptyEl = () => document.getElementById("empty-state");
 const tabListEl = () => document.getElementById("tab-list");
 const themeSelect = () => document.getElementById("theme-select");
+const readerContentEl = () => document.getElementById("reader-content");
 const currentThemeId = () => document.body.getAttribute("data-theme") || "default";
 
 let tabs = [];
 let activeTabId = null;
 let nextTabId = 1;
+let workspace = null;
+let contextTabId = null;
+let contextWorkspacePath = null;
+const collapsedWorkspaceDirs = new Set();
 const BLOCK_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -83,6 +88,7 @@ function renderMarkdown(raw) {
   contentEl().innerHTML = html;
   contentEl().style.display = "block";
   emptyEl().style.display = "none";
+  renderDocumentOutline();
 }
 
 function setTitle(filePath) {
@@ -92,6 +98,286 @@ function setTitle(filePath) {
   }
   const name = filePath.split("/").pop();
   document.title = name + " — MD Viewer";
+}
+
+function escapeHTML(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function getFileName(path) {
+  return path ? path.split("/").pop() : "";
+}
+
+function getDirName(path) {
+  if (!path || !path.includes("/")) return "";
+  return path.split("/").slice(0, -1).join("/");
+}
+
+function getBaseName(path) {
+  if (!path) return "";
+  return path.split("/").filter(Boolean).pop() || path;
+}
+
+function joinPath(base, relative) {
+  if (!relative) return base;
+  return `${base.replace(/\/+$/, "")}/${relative.replace(/^\/+/, "")}`;
+}
+
+function isMarkdownPath(path) {
+  return /\.(md|markdown|mdx|mkd)$/i.test(path);
+}
+
+function getActiveTab() {
+  return tabs.find((t) => t.id === activeTabId) || null;
+}
+
+function getReaderScrollY() {
+  return readerContentEl()?.scrollTop ?? window.scrollY;
+}
+
+function setReaderScrollY(value) {
+  const reader = readerContentEl();
+  if (reader) {
+    reader.scrollTop = value;
+  } else {
+    window.scrollTo(0, value);
+  }
+}
+
+function renderDocumentOutline() {
+  const outline = document.getElementById("document-outline");
+  if (!outline) return;
+
+  outline.innerHTML = "";
+  if (!activeTabId) {
+    const item = document.createElement("li");
+    item.className = "outline-empty";
+    item.textContent = "Open a markdown file";
+    outline.appendChild(item);
+    return;
+  }
+
+  const headings = Array.from(contentEl().querySelectorAll("h1, h2, h3"));
+  if (!headings.length) {
+    const item = document.createElement("li");
+    item.className = "outline-empty";
+    item.textContent = "No headings";
+    outline.appendChild(item);
+    return;
+  }
+
+  headings.forEach((heading, index) => {
+    const id = `md-heading-${activeTabId}-${index}`;
+    heading.id = id;
+
+    const item = document.createElement("li");
+    item.className = `outline-level-${heading.tagName.slice(1).toLowerCase()}`;
+    if (index === 0) item.classList.add("active");
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.outlineTarget = id;
+    button.textContent = heading.textContent.trim() || `Heading ${index + 1}`;
+    item.appendChild(button);
+    outline.appendChild(item);
+  });
+}
+
+function createWorkspaceTree(files) {
+  const root = {
+    name: "",
+    path: "",
+    dirs: new Map(),
+    files: [],
+  };
+
+  files.forEach((file) => {
+    const parts = (file.relative_path || file.name).split("/").filter(Boolean);
+    if (!parts.length) return;
+
+    let node = root;
+    parts.slice(0, -1).forEach((part) => {
+      const dirPath = node.path ? `${node.path}/${part}` : part;
+      if (!node.dirs.has(part)) {
+        node.dirs.set(part, {
+          name: part,
+          path: dirPath,
+          dirs: new Map(),
+          files: [],
+        });
+      }
+      node = node.dirs.get(part);
+    });
+
+    node.files.push(file);
+  });
+
+  return root;
+}
+
+function ensureWorkspaceDirExpanded(relativePath) {
+  const parts = relativePath.split("/").filter(Boolean).slice(0, -1);
+  let current = "";
+  parts.forEach((part) => {
+    current = current ? `${current}/${part}` : part;
+    collapsedWorkspaceDirs.delete(current);
+  });
+}
+
+function renderWorkspaceTreeNode(node, parentList, depth, activePath) {
+  const dirs = Array.from(node.dirs.values()).sort((a, b) =>
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+  );
+  const files = [...node.files].sort((a, b) =>
+    (a.name || a.relative_path).toLowerCase().localeCompare((b.name || b.relative_path).toLowerCase()),
+  );
+
+  dirs.forEach((dir) => {
+    const item = document.createElement("li");
+    item.className = "tree-item folder-item";
+    item.style.setProperty("--tree-depth", depth);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "folder-row";
+    button.dataset.workspaceDir = dir.path;
+    button.title = dir.path;
+
+    const isCollapsed = collapsedWorkspaceDirs.has(dir.path);
+    const twisty = document.createElement("span");
+    twisty.className = "tree-twisty";
+    twisty.textContent = isCollapsed ? "›" : "⌄";
+    button.appendChild(twisty);
+
+    const icon = document.createElement("span");
+    icon.className = "folder-icon";
+    button.appendChild(icon);
+
+    const name = document.createElement("span");
+    name.className = "tree-name";
+    name.textContent = dir.name;
+    button.appendChild(name);
+
+    item.appendChild(button);
+    parentList.appendChild(item);
+
+    if (!isCollapsed) {
+      renderWorkspaceTreeNode(dir, parentList, depth + 1, activePath);
+    }
+  });
+
+  files.forEach((file) => {
+    const item = document.createElement("li");
+    item.className = "tree-item file-item";
+    item.style.setProperty("--tree-depth", depth);
+    if (file.path === activePath) item.classList.add("active");
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "file-row";
+    button.dataset.workspaceFile = file.path;
+    button.title = file.relative_path || file.name;
+
+    const spacer = document.createElement("span");
+    spacer.className = "tree-twisty spacer";
+    button.appendChild(spacer);
+
+    const icon = document.createElement("span");
+    icon.className = "file-icon";
+    button.appendChild(icon);
+
+    const name = document.createElement("span");
+    name.className = "tree-name";
+    name.textContent = file.name || file.relative_path;
+    button.appendChild(name);
+
+    item.appendChild(button);
+    parentList.appendChild(item);
+  });
+}
+
+function renderWorkspaceFiles() {
+  const workspaceName = document.getElementById("workspace-name");
+  const workspaceMeta = document.getElementById("workspace-meta");
+  const fileList = document.getElementById("workspace-file-list");
+  if (!workspaceName || !workspaceMeta || !fileList) return;
+
+  fileList.innerHTML = "";
+  if (!workspace) {
+    workspaceName.textContent = "No workspace";
+    workspaceMeta.textContent = "Drop a folder to browse Markdown files";
+    const item = document.createElement("li");
+    item.className = "file-list-empty";
+    item.textContent = "Drop a folder or Markdown file";
+    fileList.appendChild(item);
+    return;
+  }
+
+  workspaceName.textContent = workspace.name || getBaseName(workspace.root) || "Workspace";
+  workspaceMeta.textContent = `${workspace.files.length} Markdown file${workspace.files.length === 1 ? "" : "s"}`;
+
+  if (!workspace.files.length) {
+    const item = document.createElement("li");
+    item.className = "file-list-empty";
+    item.textContent = "No Markdown files found";
+    fileList.appendChild(item);
+    return;
+  }
+
+  renderWorkspaceTreeNode(createWorkspaceTree(workspace.files), fileList, 0, getActiveTab()?.path);
+}
+
+function setWorkspace(payload) {
+  collapsedWorkspaceDirs.clear();
+  workspace = {
+    root: payload.root,
+    name: payload.name,
+    files: payload.files || [],
+  };
+  renderWorkspaceFiles();
+}
+
+function ensureFileInWorkspace(path) {
+  if (!isMarkdownPath(path)) return;
+
+  if (!workspace) {
+    const dir = getDirName(path);
+    workspace = {
+      root: dir,
+      name: dir ? getBaseName(dir) : "Open files",
+      files: [],
+    };
+  }
+
+  if (!workspace.files.some((file) => file.path === path)) {
+    workspace.files.push({
+      path,
+      name: getFileName(path),
+      relative_path: workspace.root && path.startsWith(`${workspace.root}/`)
+        ? path.slice(workspace.root.length + 1)
+        : getFileName(path),
+    });
+    workspace.files.sort((a, b) =>
+      a.relative_path.toLowerCase().localeCompare(b.relative_path.toLowerCase()),
+    );
+  }
+
+  renderWorkspaceFiles();
+}
+
+function updateSidePanel() {
+  const activeTab = getActiveTab();
+  document.body.classList.toggle("has-open-document", Boolean(activeTab));
+  renderWorkspaceFiles();
+
+  if (!activeTab) {
+    renderDocumentOutline();
+  }
 }
 
 function getTabByPath(path) {
@@ -104,34 +390,49 @@ function renderTabBar() {
     .map(
       (tab) =>
         `<div class="tab${tab.id === activeTabId ? " active" : ""}" data-tab-id="${tab.id}">` +
-        `<span class="tab-title">${tab.path.split("/").pop()}</span>` +
+        `<span class="tab-title">${escapeHTML(getFileName(tab.path))}</span>` +
         `<button class="tab-close">×</button>` +
         `</div>`,
     )
     .join("");
+
+  requestAnimationFrame(() => scrollTabIntoView(activeTabId));
+}
+
+function scrollTabIntoView(tabId) {
+  if (!tabId) return;
+  const tab = tabListEl().querySelector(`[data-tab-id="${tabId}"]`);
+  tab?.scrollIntoView({
+    block: "nearest",
+    inline: "nearest",
+  });
 }
 
 function switchToTab(tabId) {
   const current = tabs.find((t) => t.id === activeTabId);
   if (current) {
-    current.scrollY = window.scrollY;
+    current.scrollY = getReaderScrollY();
   }
 
   const tab = tabs.find((t) => t.id === tabId);
   if (!tab) return;
 
   activeTabId = tabId;
+  applyTabTheme(tab);
   renderMarkdown(tab.content);
   setTitle(tab.path);
   renderTabBar();
   updateExportButton();
+  updateSidePanel();
 
   requestAnimationFrame(() => {
-    window.scrollTo(0, tab.scrollY || 0);
+    setReaderScrollY(tab.scrollY || 0);
   });
 }
 
 function createTab(path, content) {
+  ensureFileInWorkspace(path);
+
   const existing = getTabByPath(path);
   if (existing) {
     existing.content = content;
@@ -140,7 +441,7 @@ function createTab(path, content) {
   }
 
   const id = "tab-" + nextTabId++;
-  tabs.push({ id, path, content, scrollY: 0 });
+  tabs.push({ id, path, content, scrollY: 0, themeId: currentThemeId() });
   switchToTab(id);
 }
 
@@ -151,13 +452,7 @@ function closeTab(tabId) {
   tabs.splice(idx, 1);
 
   if (tabs.length === 0) {
-    activeTabId = null;
-    contentEl().innerHTML = "";
-    contentEl().style.display = "none";
-    emptyEl().style.display = "";
-    setTitle(null);
-    renderTabBar();
-    updateExportButton();
+    clearAllTabs();
     return;
   }
 
@@ -166,7 +461,198 @@ function closeTab(tabId) {
     switchToTab(tabs[nextIdx].id);
   } else {
     renderTabBar();
+    updateSidePanel();
   }
+}
+
+function clearAllTabs() {
+  tabs = [];
+  activeTabId = null;
+  contentEl().innerHTML = "";
+  contentEl().style.display = "none";
+  emptyEl().style.display = "";
+  setTitle(null);
+  renderTabBar();
+  updateExportButton();
+  updateSidePanel();
+}
+
+function closeTabs(tabIds, fallbackIndex = 0, fallbackTabId = null) {
+  const ids = new Set(tabIds);
+  if (!ids.size) return;
+
+  const current = getActiveTab();
+  if (current) {
+    current.scrollY = getReaderScrollY();
+  }
+
+  const activeWasClosed = ids.has(activeTabId);
+  tabs = tabs.filter((tab) => !ids.has(tab.id));
+
+  if (!tabs.length) {
+    clearAllTabs();
+    return;
+  }
+
+  if (!activeWasClosed && tabs.some((tab) => tab.id === activeTabId)) {
+    renderTabBar();
+    updateExportButton();
+    updateSidePanel();
+    return;
+  }
+
+  const fallbackExists = fallbackTabId && tabs.some((tab) => tab.id === fallbackTabId);
+  const nextTab = fallbackExists
+    ? tabs.find((tab) => tab.id === fallbackTabId)
+    : tabs[Math.min(fallbackIndex, tabs.length - 1)];
+  switchToTab(nextTab?.id || tabs[0].id);
+}
+
+function hideTabContextMenu() {
+  const menu = document.getElementById("tab-context-menu");
+  if (!menu) return;
+  menu.classList.add("hidden");
+  contextTabId = null;
+}
+
+function hideWorkspaceContextMenu() {
+  const menu = document.getElementById("workspace-context-menu");
+  if (!menu) return;
+  menu.classList.add("hidden");
+  contextWorkspacePath = null;
+}
+
+function positionContextMenu(menu, x, y) {
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  menu.classList.remove("hidden");
+
+  requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    const left = Math.min(x, window.innerWidth - rect.width - 8);
+    const top = Math.min(y, window.innerHeight - rect.height - 8);
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+  });
+}
+
+function updateTabContextMenuState(tabId) {
+  const menu = document.getElementById("tab-context-menu");
+  const index = tabs.findIndex((tab) => tab.id === tabId);
+  if (!menu || index === -1) return;
+
+  menu.querySelector('[data-tab-action="close-left"]').disabled = index === 0;
+  menu.querySelector('[data-tab-action="close-right"]').disabled = index === tabs.length - 1;
+  menu.querySelector('[data-tab-action="close-all"]').disabled = tabs.length === 0;
+}
+
+function showTabContextMenu(tabId, x, y) {
+  const menu = document.getElementById("tab-context-menu");
+  if (!menu) return;
+
+  contextTabId = tabId;
+  updateTabContextMenuState(tabId);
+  positionContextMenu(menu, x, y);
+}
+
+function runTabContextAction(action) {
+  const index = tabs.findIndex((tab) => tab.id === contextTabId);
+  if (index === -1) return;
+
+  const tabId = contextTabId;
+  if (action === "close-current") {
+    closeTabs([tabId], index);
+  } else if (action === "close-left") {
+    closeTabs(tabs.slice(0, index).map((tab) => tab.id), index, tabId);
+  } else if (action === "close-right") {
+    closeTabs(tabs.slice(index + 1).map((tab) => tab.id), index, tabId);
+  } else if (action === "close-all") {
+    clearAllTabs();
+  }
+}
+
+function showWorkspaceContextMenu(path, x, y) {
+  const menu = document.getElementById("workspace-context-menu");
+  if (!menu) return;
+  contextWorkspacePath = path;
+  positionContextMenu(menu, x, y);
+}
+
+async function runWorkspaceContextAction(action) {
+  if (!contextWorkspacePath) return;
+  if (action === "reveal") {
+    try {
+      await invoke("reveal_in_finder", { path: contextWorkspacePath });
+    } catch (e) {
+      console.error("Failed to reveal in Finder:", e);
+    }
+  }
+}
+
+function initContextMenus() {
+  const tabMenu = document.getElementById("tab-context-menu");
+  const workspaceMenu = document.getElementById("workspace-context-menu");
+  if (!tabMenu || !workspaceMenu) return;
+
+  document.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+
+    const tabEl = e.target.closest(".tab");
+    if (tabEl && tabListEl().contains(tabEl)) {
+      hideWorkspaceContextMenu();
+      showTabContextMenu(tabEl.dataset.tabId, e.clientX, e.clientY);
+      return;
+    }
+
+    const fileList = document.getElementById("workspace-file-list");
+    const fileEl = e.target.closest("[data-workspace-file]");
+    if (fileEl && fileList?.contains(fileEl)) {
+      hideTabContextMenu();
+      showWorkspaceContextMenu(fileEl.dataset.workspaceFile, e.clientX, e.clientY);
+      return;
+    }
+
+    const dirEl = e.target.closest("[data-workspace-dir]");
+    if (dirEl && fileList?.contains(dirEl) && workspace?.root) {
+      hideTabContextMenu();
+      showWorkspaceContextMenu(joinPath(workspace.root, dirEl.dataset.workspaceDir), e.clientX, e.clientY);
+      return;
+    }
+
+    hideTabContextMenu();
+    hideWorkspaceContextMenu();
+  });
+
+  tabMenu.addEventListener("click", (e) => {
+    const item = e.target.closest("[data-tab-action]");
+    if (!item || item.disabled) return;
+    runTabContextAction(item.dataset.tabAction);
+    hideTabContextMenu();
+  });
+
+  workspaceMenu.addEventListener("click", async (e) => {
+    const item = e.target.closest("[data-workspace-action]");
+    if (!item || item.disabled) return;
+    await runWorkspaceContextAction(item.dataset.workspaceAction);
+    hideWorkspaceContextMenu();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!tabMenu.contains(e.target)) hideTabContextMenu();
+    if (!workspaceMenu.contains(e.target)) hideWorkspaceContextMenu();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      hideTabContextMenu();
+      hideWorkspaceContextMenu();
+    }
+  });
+
+  window.addEventListener("blur", () => {
+    hideTabContextMenu();
+    hideWorkspaceContextMenu();
+  });
 }
 
 function getActiveFileName() {
@@ -558,10 +1044,24 @@ function buildThemeSelectOptions(select, selectedTheme) {
   });
 }
 
-function applyTheme(theme) {
+function applyTheme(theme, { persist = true } = {}) {
   const appliedTheme = applyMarkdownTheme(theme);
-  localStorage.setItem("md-viewer-theme", appliedTheme);
+  if (persist) {
+    localStorage.setItem("md-viewer-theme", appliedTheme);
+  }
   applyTypographyOverrides(appliedTheme);
+  return appliedTheme;
+}
+
+function syncThemeSelect(themeId) {
+  const select = themeSelect();
+  if (select) select.value = themeId;
+}
+
+function applyTabTheme(tab) {
+  const appliedTheme = applyTheme(tab.themeId || currentThemeId(), { persist: false });
+  tab.themeId = appliedTheme;
+  syncThemeSelect(appliedTheme);
   return appliedTheme;
 }
 
@@ -571,13 +1071,130 @@ function initTheme() {
   const appliedTheme = applyTheme(saved);
   buildThemeSelectOptions(select, appliedTheme);
   select.value = appliedTheme;
+  updateSidePanel();
   select.addEventListener("change", (e) => {
     const nextTheme = applyTheme(e.target.value);
+    const activeTab = getActiveTab();
+    if (activeTab) {
+      activeTab.themeId = nextTheme;
+    }
     select.value = nextTheme;
+    updateSidePanel();
     if (!document.getElementById("settings-backdrop").classList.contains("hidden")) {
       fillTypographyDialog();
     }
   });
+}
+
+function initOutlineNavigation() {
+  const outline = document.getElementById("document-outline");
+  if (!outline) return;
+
+  outline.addEventListener("click", (e) => {
+    const targetButton = e.target.closest("[data-outline-target]");
+    if (!targetButton) return;
+
+    outline.querySelectorAll(".active").forEach((item) => item.classList.remove("active"));
+    targetButton.closest("li")?.classList.add("active");
+
+    document.getElementById(targetButton.dataset.outlineTarget)?.scrollIntoView({
+      block: "start",
+      behavior: "smooth",
+    });
+  });
+}
+
+async function openWorkspaceFile(path) {
+  try {
+    const file = workspace?.files.find((item) => item.path === path);
+    if (file) {
+      ensureWorkspaceDirExpanded(file.relative_path || file.name);
+    }
+    const result = await invoke("open_file", { path });
+    createTab(result.path, result.content);
+  } catch (e) {
+    console.error("Failed to open file:", e);
+  }
+}
+
+async function loadWorkspace(path) {
+  try {
+    const result = await invoke("list_markdown_files", { path });
+    setWorkspace(result);
+  } catch (e) {
+    console.error("Failed to load workspace:", e);
+  }
+}
+
+async function handleDroppedPath(path) {
+  if (isMarkdownPath(path)) {
+    await openWorkspaceFile(path);
+    return;
+  }
+
+  await loadWorkspace(path);
+}
+
+async function chooseWorkspace() {
+  try {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "选择 Markdown 目录",
+    });
+    if (typeof selected === "string") {
+      await loadWorkspace(selected);
+    }
+  } catch (e) {
+    console.error("Failed to choose workspace:", e);
+  }
+}
+
+async function refreshWorkspace() {
+  if (!workspace?.root) return;
+  await loadWorkspace(workspace.root);
+}
+
+function initWorkspaceNavigation() {
+  const fileList = document.getElementById("workspace-file-list");
+  const openButton = document.getElementById("open-workspace-btn");
+  const refreshButton = document.getElementById("refresh-workspace-btn");
+
+  openButton?.addEventListener("click", chooseWorkspace);
+  refreshButton?.addEventListener("click", refreshWorkspace);
+
+  if (!fileList) return;
+
+  fileList.addEventListener("click", async (e) => {
+    const dirButton = e.target.closest("[data-workspace-dir]");
+    if (dirButton) {
+      const dir = dirButton.dataset.workspaceDir;
+      if (collapsedWorkspaceDirs.has(dir)) {
+        collapsedWorkspaceDirs.delete(dir);
+      } else {
+        collapsedWorkspaceDirs.add(dir);
+      }
+      renderWorkspaceFiles();
+      return;
+    }
+
+    const targetButton = e.target.closest("[data-workspace-file]");
+    if (!targetButton) return;
+    await openWorkspaceFile(targetButton.dataset.workspaceFile);
+  });
+}
+
+function initTabScrolling() {
+  const list = tabListEl();
+  list.addEventListener("wheel", (e) => {
+    if (list.scrollWidth <= list.clientWidth) return;
+
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (!delta) return;
+
+    e.preventDefault();
+    list.scrollLeft += delta;
+  }, { passive: false });
 }
 
 function isBlockNode(node) {
@@ -838,6 +1455,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   initTypographySettings();
   initCopyHandler();
   initExportMenu();
+  initOutlineNavigation();
+  initWorkspaceNavigation();
+  initContextMenus();
+  initTabScrolling();
 
   const tabBar = document.getElementById("tab-bar");
 
@@ -880,6 +1501,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     tab.content = content;
     if (tab.id === activeTabId) {
       renderMarkdown(content);
+      updateSidePanel();
     }
   });
 
@@ -887,14 +1509,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   webview.onDragDropEvent(async (event) => {
     if (event.payload.type === "drop" && event.payload.paths.length > 0) {
       for (const path of event.payload.paths) {
-        if (/\.(md|markdown|mdx)$/i.test(path)) {
-          try {
-            const result = await invoke("open_file", { path });
-            createTab(result.path, result.content);
-          } catch (e) {
-            console.error("Failed to open file:", e);
-          }
-        }
+        await handleDroppedPath(path);
       }
     }
   });
