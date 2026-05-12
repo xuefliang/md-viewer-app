@@ -53,3 +53,7 @@ pnpm tauri build
 ## 致谢
 
 感谢 [markdown-viewer-extension](https://github.com/markdown-viewer/markdown-viewer-extension) 原仓库作者。这个项目的主题体验和 Markdown 阅读方向都受到了它的启发。
+
+## 友情链接
+
+- [LinuxDO](https://linux.do)
