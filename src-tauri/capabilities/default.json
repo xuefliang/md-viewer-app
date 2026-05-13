@@ -11,6 +11,8 @@
     "core:window:allow-start-dragging",
     "core:webview:allow-print",
     "dialog:default",
-    "fs:default"
+    "fs:default",
+    "process:allow-restart",
+    "updater:default"
   ]
 }

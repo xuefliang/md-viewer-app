@@ -112,5 +112,31 @@
         </footer>
       </section>
     </div>
+    <div id="update-backdrop" class="hidden">
+      <section id="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
+        <header class="dialog-header">
+          <div>
+            <h2 id="update-title">发现新版本</h2>
+            <p id="update-version"></p>
+          </div>
+          <button id="update-close" class="icon-button" type="button" aria-label="关闭">×</button>
+        </header>
+        <div id="update-body">
+          <p id="update-notes"></p>
+          <div id="update-progress" class="hidden" aria-live="polite">
+            <div class="update-progress-track">
+              <div id="update-progress-bar"></div>
+            </div>
+            <div id="update-progress-text">准备下载</div>
+          </div>
+          <p id="update-error" class="hidden"></p>
+        </div>
+        <footer class="dialog-actions">
+          <button id="update-later" type="button">稍后再说</button>
+          <span class="dialog-spacer"></span>
+          <button id="update-install" type="button">立即更新</button>
+        </footer>
+      </section>
+    </div>
   </body>
 </html>

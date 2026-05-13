@@ -17,6 +17,9 @@ import {
   saveThemeTypographySettings,
 } from "./theme-settings.js";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { exportDOCX } from "./docx-exporter.js";
 
 const searchParams = new URLSearchParams(window.location.search);
@@ -57,6 +60,7 @@ let workspace = null;
 let looseFiles = [];
 let contextTabId = null;
 let contextWorkspacePath = null;
+let isUpdateInstalling = false;
 const collapsedWorkspaceDirs = new Set();
 const SIDEBAR_WIDTH_KEY = "md-viewer-sidebar-width";
 const OUTLINE_HEIGHT_KEY = "md-viewer-outline-height";
@@ -67,6 +71,7 @@ const WORKSPACE_MIN_HEIGHT = 132;
 const OUTLINE_MIN_HEIGHT = 96;
 const RESIZE_KEYBOARD_STEP = 18;
 const SCREENSHOT_DEMO_ROOT = "/Users/demo/Documents/Markdown Library";
+const UPDATE_CHECK_DELAY_MS = 1200;
 const SCREENSHOT_DEMO_FILES = [
   {
     path: `${SCREENSHOT_DEMO_ROOT}/README.md`,
@@ -174,9 +179,205 @@ const BLOCK_TAGS = new Set([
   "UL",
 ]);
 
-function renderMarkdown(raw) {
+function getDirName(path) {
+  const value = String(path || "").replace(/[\\/]+$/, "");
+  const index = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
+  if (index < 0) return "";
+  if (index === 0) return value.slice(0, 1);
+  if (index === 2 && /^[A-Za-z]:/.test(value)) return value.slice(0, 3);
+  return value.slice(0, index);
+}
+
+function isWindowsAbsolutePath(path) {
+  return /^[A-Za-z]:(?:[\\/]|%5[cC]|%2[fF])/.test(String(path || ""));
+}
+
+function isLocalAbsolutePath(path) {
+  const value = String(path || "");
+  return value.startsWith("/") || value.startsWith("\\\\") || isWindowsAbsolutePath(value);
+}
+
+function usesWindowsPath(path) {
+  const value = String(path || "");
+  return isWindowsAbsolutePath(value) || value.includes("\\");
+}
+
+function splitImageSrcSuffix(src) {
+  const queryIndex = src.indexOf("?");
+  const hashIndex = src.indexOf("#");
+  const suffixIndex = [queryIndex, hashIndex]
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0];
+
+  if (suffixIndex === undefined) {
+    return { pathPart: src, suffix: "" };
+  }
+
+  return {
+    pathPart: src.slice(0, suffixIndex),
+    suffix: src.slice(suffixIndex),
+  };
+}
+
+function decodeImagePath(path) {
+  try {
+    return decodeURI(path).replace(/%5[cC]/g, "\\").replace(/%2[fF]/g, "/");
+  } catch (_) {
+    return String(path || "").replace(/%5[cC]/g, "\\").replace(/%2[fF]/g, "/");
+  }
+}
+
+function fileUrlToPath(src) {
+  try {
+    const url = new URL(src);
+    if (url.protocol !== "file:") return null;
+
+    let pathname = decodeURIComponent(url.pathname);
+    if (url.host) {
+      return `\\\\${url.host}${pathname.replace(/\//g, "\\")}`;
+    }
+    if (/^\/[A-Za-z]:\//.test(pathname)) {
+      pathname = pathname.slice(1).replace(/\//g, "\\");
+    }
+    return pathname;
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeLocalPath(path, preferWindows = false) {
+  const separator = preferWindows ? "\\" : "/";
+  const uncMatch = String(path || "").match(/^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)(.*)$/);
+
+  if (preferWindows && uncMatch) {
+    const [, server, share, rest = ""] = uncMatch;
+    const parts = [];
+    rest
+      .replace(/^[\\/]+/, "")
+      .replace(/[\\/]+/g, "/")
+      .split("/")
+      .forEach((part) => {
+        if (!part || part === ".") return;
+        if (part === "..") {
+          if (parts.length) parts.pop();
+          return;
+        }
+        parts.push(part);
+      });
+
+    return `\\\\${server}\\${share}${parts.length ? `\\${parts.join("\\")}` : ""}`;
+  }
+
+  const normalized = String(path || "").replace(/[\\/]+/g, "/");
+  const hasDrive = /^[A-Za-z]:\//.test(normalized);
+  const isAbsolute = normalized.startsWith("/");
+  const prefix = hasDrive ? normalized.slice(0, 3) : isAbsolute ? "/" : "";
+  const parts = [];
+
+  normalized
+    .slice(prefix.length)
+    .split("/")
+    .forEach((part) => {
+      if (!part || part === ".") return;
+      if (part === "..") {
+        if (parts.length && parts[parts.length - 1] !== "..") {
+          parts.pop();
+        } else if (!prefix) {
+          parts.push(part);
+        }
+        return;
+      }
+      parts.push(part);
+    });
+
+  const body = parts.join(separator);
+  if (hasDrive) {
+    const drivePrefix = prefix.replace("/", separator);
+    return body ? `${drivePrefix}${body}` : drivePrefix;
+  }
+  if (isAbsolute) return body ? `${separator}${body}` : separator;
+  return body;
+}
+
+function joinLocalPath(baseDir, relativePath) {
+  const preferWindows = usesWindowsPath(baseDir);
+  const separator = preferWindows ? "\\" : "/";
+  const joined = `${String(baseDir || "").replace(/[\\/]+$/, "")}${separator}${relativePath}`;
+  return normalizeLocalPath(joined, preferWindows);
+}
+
+function shouldPreserveImageSrc(src) {
+  const value = String(src || "").trim();
+  if (!value || value.startsWith("#") || value.startsWith("//")) return true;
+  if (isWindowsAbsolutePath(value)) return false;
+  if (/^file:/i.test(value)) return false;
+  if (isWindowsAbsolutePath(decodeImagePath(value))) return false;
+  return /^[A-Za-z][A-Za-z\d+.-]*:/.test(value);
+}
+
+function resolveLocalImagePath(src, documentPath) {
+  const { pathPart, suffix } = splitImageSrcSuffix(String(src || "").trim());
+  if (!pathPart || shouldPreserveImageSrc(pathPart)) return null;
+
+  if (/^file:/i.test(pathPart)) {
+    const filePath = fileUrlToPath(pathPart);
+    return filePath ? { path: filePath, suffix } : null;
+  }
+
+  const decodedPath = decodeImagePath(pathPart);
+  if (isLocalAbsolutePath(decodedPath)) {
+    return {
+      path: normalizeLocalPath(decodedPath, usesWindowsPath(decodedPath)),
+      suffix,
+    };
+  }
+
+  const baseDir = getDirName(documentPath);
+  if (!baseDir) return null;
+
+  return {
+    path: joinLocalPath(baseDir, decodedPath),
+    suffix,
+  };
+}
+
+async function rewriteMarkdownImageSources(documentPath) {
+  if (!isTauriRuntime) return;
+
+  const images = Array.from(contentEl().querySelectorAll("img[src]"));
+
+  await Promise.all(images.map(async (img) => {
+    const originalSrc = img.getAttribute("src");
+    const resolved = resolveLocalImagePath(originalSrc, documentPath);
+    if (!resolved) return;
+
+    let imagePath = resolved.path;
+    if (isLocalAbsolutePath(imagePath)) {
+      imagePath = await invoke("resolve_image_path", {
+        path: imagePath,
+        documentPath,
+        workspaceRoot: workspace?.root || null,
+      }) || imagePath;
+    }
+
+    img.dataset.mdOriginalSrc = originalSrc;
+    img.src = `${convertFileSrc(imagePath)}${resolved.suffix}`;
+  }));
+}
+
+function getPortableMarkdownHTML() {
+  const clone = contentEl().cloneNode(true);
+  clone.querySelectorAll("img[data-md-original-src]").forEach((img) => {
+    img.setAttribute("src", img.dataset.mdOriginalSrc);
+    img.removeAttribute("data-md-original-src");
+  });
+  return clone.innerHTML;
+}
+
+async function renderMarkdown(raw, filePath = getActiveTab()?.path) {
   const html = md.render(raw);
   contentEl().innerHTML = html;
+  await rewriteMarkdownImageSources(filePath);
   contentEl().style.display = "block";
   emptyEl().style.display = "none";
   renderDocumentOutline();
@@ -896,6 +1097,119 @@ function initContextMenus() {
   });
 }
 
+function setUpdateDialogBusy(isBusy) {
+  isUpdateInstalling = isBusy;
+  document.getElementById("update-install").disabled = isBusy;
+  document.getElementById("update-later").disabled = isBusy;
+  document.getElementById("update-close").disabled = isBusy;
+}
+
+function closeUpdateDialog() {
+  if (isUpdateInstalling) return;
+  document.getElementById("update-backdrop")?.classList.add("hidden");
+}
+
+function setUpdateProgress(percent, label) {
+  const progress = document.getElementById("update-progress");
+  const bar = document.getElementById("update-progress-bar");
+  const text = document.getElementById("update-progress-text");
+  progress?.classList.remove("hidden");
+
+  if (bar && Number.isFinite(percent)) {
+    bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  }
+  if (text) {
+    text.textContent = label;
+  }
+}
+
+function formatUpdateNotes(body) {
+  return String(body || "").trim() || "此版本包含修复和改进。";
+}
+
+function showUpdateDialog(update) {
+  const backdrop = document.getElementById("update-backdrop");
+  const version = document.getElementById("update-version");
+  const notes = document.getElementById("update-notes");
+  const progress = document.getElementById("update-progress");
+  const progressBar = document.getElementById("update-progress-bar");
+  const progressText = document.getElementById("update-progress-text");
+  const error = document.getElementById("update-error");
+  const installButton = document.getElementById("update-install");
+  if (!backdrop || !installButton) return;
+
+  setUpdateDialogBusy(false);
+  if (version) version.textContent = `${update.currentVersion} → ${update.version}`;
+  if (notes) notes.textContent = formatUpdateNotes(update.body);
+  progress?.classList.add("hidden");
+  if (progressBar) progressBar.style.width = "0%";
+  if (progressText) progressText.textContent = "准备下载";
+  error?.classList.add("hidden");
+  if (error) error.textContent = "";
+  backdrop.classList.remove("hidden");
+
+  installButton.onclick = async () => {
+    setUpdateDialogBusy(true);
+    error?.classList.add("hidden");
+
+    let downloaded = 0;
+    let contentLength = 0;
+    try {
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          downloaded = 0;
+          contentLength = event.data.contentLength || 0;
+          setUpdateProgress(0, contentLength ? "开始下载更新" : "正在下载更新");
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          const percent = contentLength ? (downloaded / contentLength) * 100 : 0;
+          setUpdateProgress(percent, contentLength ? `下载中 ${Math.round(percent)}%` : "正在下载更新");
+        } else if (event.event === "Finished") {
+          setUpdateProgress(100, "下载完成，正在安装");
+        }
+      });
+      setUpdateProgress(100, "安装完成，正在重启");
+      await relaunch();
+    } catch (err) {
+      console.error("Failed to install update:", err);
+      if (error) {
+        error.textContent = "更新失败，请稍后重试。";
+        error.classList.remove("hidden");
+      }
+      setUpdateDialogBusy(false);
+    }
+  };
+}
+
+async function checkForAppUpdate() {
+  if (!isTauriRuntime || isScreenshotDemo) return;
+
+  try {
+    const update = await check();
+    if (update) {
+      showUpdateDialog(update);
+    }
+  } catch (err) {
+    console.warn("Failed to check for updates:", err);
+  }
+}
+
+function initUpdateDialog() {
+  document.getElementById("update-close")?.addEventListener("click", closeUpdateDialog);
+  document.getElementById("update-later")?.addEventListener("click", closeUpdateDialog);
+
+  document.getElementById("update-backdrop")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closeUpdateDialog();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const backdrop = document.getElementById("update-backdrop");
+    if (e.key === "Escape" && backdrop && !backdrop.classList.contains("hidden")) {
+      closeUpdateDialog();
+    }
+  });
+}
+
 function getActiveFileName() {
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return "document";
@@ -1129,7 +1443,7 @@ async function handleExportHTML() {
   const themeCSS = getCurrentThemeCSS();
   const contentCSS = getContentCSS();
   const typographyCSS = getTypographyOverrideCSS();
-  const bodyHTML = contentEl().innerHTML;
+  const bodyHTML = getPortableMarkdownHTML();
   const dataTheme = document.body.getAttribute("data-theme") || "default";
 
   const html = `<!DOCTYPE html>
@@ -1853,6 +2167,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initContextMenus();
   initTabScrolling();
   initResizablePanels();
+  initUpdateDialog();
 
   const tabBar = document.getElementById("tab-bar");
 
@@ -1920,6 +2235,8 @@ window.addEventListener("DOMContentLoaded", async () => {
         createTab(initial.path, initial.content);
       }
     } catch (_) {}
+
+    setTimeout(checkForAppUpdate, UPDATE_CHECK_DELAY_MS);
   } else {
     document.body.dataset.screenshotReady = "true";
   }

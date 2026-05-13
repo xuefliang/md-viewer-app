@@ -78,6 +78,112 @@ fn relative_path_string(root: &Path, path: &Path) -> String {
         .join("/")
 }
 
+fn path_parts(path: &str) -> Vec<String> {
+    let mut normalized = path.replace('\\', "/");
+    if normalized.len() >= 3 && normalized.as_bytes()[1] == b':' && normalized.as_bytes()[2] == b'/'
+    {
+        normalized = normalized[3..].to_string();
+    }
+
+    normalized
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn existing_file(path: PathBuf) -> Option<String> {
+    if !path.is_file() {
+        return None;
+    }
+
+    Some(
+        fs::canonicalize(&path)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string(),
+    )
+}
+
+fn candidate_from_suffix(root: &Path, suffix: &[String]) -> Option<String> {
+    if suffix.is_empty() {
+        return None;
+    }
+
+    let mut candidate = root.to_path_buf();
+    for part in suffix {
+        candidate.push(part);
+    }
+
+    existing_file(candidate)
+}
+
+fn unique_candidate(candidates: Vec<String>) -> Option<String> {
+    let unique: HashSet<String> = candidates.into_iter().collect();
+    if unique.len() == 1 {
+        unique.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn fallback_roots(document_path: Option<String>, workspace_root: Option<String>) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Some(root) = workspace_root {
+        let path = PathBuf::from(root);
+        if path.is_dir() {
+            roots.push(path);
+        }
+    }
+
+    if let Some(path) = document_path {
+        let path = PathBuf::from(path);
+        if let Some(parent) = path.parent() {
+            if parent.is_dir() && !roots.iter().any(|root| root == parent) {
+                roots.push(parent.to_path_buf());
+            }
+        }
+    }
+
+    roots
+}
+
+fn resolve_by_workspace_suffix(path: &str, roots: &[PathBuf]) -> Option<String> {
+    let parts = path_parts(path);
+    if parts.is_empty() || roots.is_empty() {
+        return None;
+    }
+
+    for root in roots {
+        let Some(root_name) = root.file_name().map(|name| name.to_string_lossy()) else {
+            continue;
+        };
+
+        for (index, part) in parts.iter().enumerate() {
+            if part.eq_ignore_ascii_case(root_name.as_ref()) {
+                if let Some(candidate) = candidate_from_suffix(root, &parts[index + 1..]) {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    for start in 0..parts.len() {
+        let candidates = roots
+            .iter()
+            .filter_map(|root| candidate_from_suffix(root, &parts[start..]))
+            .collect::<Vec<_>>();
+
+        if let Some(candidate) = unique_candidate(candidates) {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 fn get_initial_file(state: tauri::State<AppState>) -> Option<FilePayload> {
     let guard = state.current_file.lock().unwrap();
@@ -198,6 +304,20 @@ fn list_markdown_files(path: String) -> Result<WorkspacePayload, String> {
 }
 
 #[tauri::command]
+fn resolve_image_path(
+    path: String,
+    document_path: Option<String>,
+    workspace_root: Option<String>,
+) -> Option<String> {
+    if let Some(path) = existing_file(PathBuf::from(&path)) {
+        return Some(path);
+    }
+
+    let roots = fallback_roots(document_path, workspace_root);
+    resolve_by_workspace_suffix(&path, &roots)
+}
+
+#[tauri::command]
 fn write_export_file(path: String, contents: Vec<u8>) -> Result<(), String> {
     let path_buf = PathBuf::from(path);
     fs::write(&path_buf, contents).map_err(|e| e.to_string())
@@ -269,6 +389,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             current_file: Mutex::new(None),
             watched_files: Mutex::new(HashSet::new()),
@@ -277,6 +399,7 @@ pub fn run() {
             get_initial_file,
             open_file,
             list_markdown_files,
+            resolve_image_path,
             write_export_file,
             reveal_in_finder
         ])
