@@ -18,6 +18,8 @@ import {
 } from "./theme-settings.js";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { exportDOCX } from "./docx-exporter.js";
 
 const searchParams = new URLSearchParams(window.location.search);
@@ -58,6 +60,7 @@ let workspace = null;
 let looseFiles = [];
 let contextTabId = null;
 let contextWorkspacePath = null;
+let isUpdateInstalling = false;
 const collapsedWorkspaceDirs = new Set();
 const SIDEBAR_WIDTH_KEY = "md-viewer-sidebar-width";
 const OUTLINE_HEIGHT_KEY = "md-viewer-outline-height";
@@ -68,6 +71,7 @@ const WORKSPACE_MIN_HEIGHT = 132;
 const OUTLINE_MIN_HEIGHT = 96;
 const RESIZE_KEYBOARD_STEP = 18;
 const SCREENSHOT_DEMO_ROOT = "/Users/demo/Documents/Markdown Library";
+const UPDATE_CHECK_DELAY_MS = 1200;
 const SCREENSHOT_DEMO_FILES = [
   {
     path: `${SCREENSHOT_DEMO_ROOT}/README.md`,
@@ -1093,6 +1097,119 @@ function initContextMenus() {
   });
 }
 
+function setUpdateDialogBusy(isBusy) {
+  isUpdateInstalling = isBusy;
+  document.getElementById("update-install").disabled = isBusy;
+  document.getElementById("update-later").disabled = isBusy;
+  document.getElementById("update-close").disabled = isBusy;
+}
+
+function closeUpdateDialog() {
+  if (isUpdateInstalling) return;
+  document.getElementById("update-backdrop")?.classList.add("hidden");
+}
+
+function setUpdateProgress(percent, label) {
+  const progress = document.getElementById("update-progress");
+  const bar = document.getElementById("update-progress-bar");
+  const text = document.getElementById("update-progress-text");
+  progress?.classList.remove("hidden");
+
+  if (bar && Number.isFinite(percent)) {
+    bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  }
+  if (text) {
+    text.textContent = label;
+  }
+}
+
+function formatUpdateNotes(body) {
+  return String(body || "").trim() || "此版本包含修复和改进。";
+}
+
+function showUpdateDialog(update) {
+  const backdrop = document.getElementById("update-backdrop");
+  const version = document.getElementById("update-version");
+  const notes = document.getElementById("update-notes");
+  const progress = document.getElementById("update-progress");
+  const progressBar = document.getElementById("update-progress-bar");
+  const progressText = document.getElementById("update-progress-text");
+  const error = document.getElementById("update-error");
+  const installButton = document.getElementById("update-install");
+  if (!backdrop || !installButton) return;
+
+  setUpdateDialogBusy(false);
+  if (version) version.textContent = `${update.currentVersion} → ${update.version}`;
+  if (notes) notes.textContent = formatUpdateNotes(update.body);
+  progress?.classList.add("hidden");
+  if (progressBar) progressBar.style.width = "0%";
+  if (progressText) progressText.textContent = "准备下载";
+  error?.classList.add("hidden");
+  if (error) error.textContent = "";
+  backdrop.classList.remove("hidden");
+
+  installButton.onclick = async () => {
+    setUpdateDialogBusy(true);
+    error?.classList.add("hidden");
+
+    let downloaded = 0;
+    let contentLength = 0;
+    try {
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          downloaded = 0;
+          contentLength = event.data.contentLength || 0;
+          setUpdateProgress(0, contentLength ? "开始下载更新" : "正在下载更新");
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          const percent = contentLength ? (downloaded / contentLength) * 100 : 0;
+          setUpdateProgress(percent, contentLength ? `下载中 ${Math.round(percent)}%` : "正在下载更新");
+        } else if (event.event === "Finished") {
+          setUpdateProgress(100, "下载完成，正在安装");
+        }
+      });
+      setUpdateProgress(100, "安装完成，正在重启");
+      await relaunch();
+    } catch (err) {
+      console.error("Failed to install update:", err);
+      if (error) {
+        error.textContent = "更新失败，请稍后重试。";
+        error.classList.remove("hidden");
+      }
+      setUpdateDialogBusy(false);
+    }
+  };
+}
+
+async function checkForAppUpdate() {
+  if (!isTauriRuntime || isScreenshotDemo) return;
+
+  try {
+    const update = await check();
+    if (update) {
+      showUpdateDialog(update);
+    }
+  } catch (err) {
+    console.warn("Failed to check for updates:", err);
+  }
+}
+
+function initUpdateDialog() {
+  document.getElementById("update-close")?.addEventListener("click", closeUpdateDialog);
+  document.getElementById("update-later")?.addEventListener("click", closeUpdateDialog);
+
+  document.getElementById("update-backdrop")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closeUpdateDialog();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const backdrop = document.getElementById("update-backdrop");
+    if (e.key === "Escape" && backdrop && !backdrop.classList.contains("hidden")) {
+      closeUpdateDialog();
+    }
+  });
+}
+
 function getActiveFileName() {
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return "document";
@@ -2050,6 +2167,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initContextMenus();
   initTabScrolling();
   initResizablePanels();
+  initUpdateDialog();
 
   const tabBar = document.getElementById("tab-bar");
 
@@ -2117,6 +2235,8 @@ window.addEventListener("DOMContentLoaded", async () => {
         createTab(initial.path, initial.content);
       }
     } catch (_) {}
+
+    setTimeout(checkForAppUpdate, UPDATE_CHECK_DELAY_MS);
   } else {
     document.body.dataset.screenshotReady = "true";
   }

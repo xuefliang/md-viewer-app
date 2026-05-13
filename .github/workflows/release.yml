@@ -18,6 +18,7 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - name: macOS Apple Silicon
@@ -67,16 +68,40 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Read changelog
+        id: changelog
+        shell: bash
+        run: |
+          version="${{ inputs.tag || github.ref_name }}"
+          version="${version#v}"
+          body="$(awk -v version="$version" '
+            $0 ~ "^## " version "([ -]|$)" { capture = 1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/d')"
+          if [ -z "$body" ]; then
+            body="See the assets below to download and install this version."
+          fi
+          {
+            echo "body<<EOF"
+            echo "$body"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and publish Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: MD Viewer ${{ inputs.tag || github.ref_name }}
-          releaseBody: See the assets below to download and install this version.
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
       - name: Upload build artifact
@@ -85,5 +110,20 @@ jobs:
           name: ${{ matrix.artifact-name }}
           path: |
             src-tauri/target/**/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/nsis/*setup.exe
+            src-tauri/target/**/release/bundle/macos/*.app.tar.gz*
+            src-tauri/target/**/release/bundle/nsis/*setup.exe
+            src-tauri/target/**/release/bundle/nsis/*.sig
           if-no-files-found: error
+
+  publish-release:
+    name: Publish release
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --prerelease=false
