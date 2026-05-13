@@ -185,7 +185,7 @@ function getDirName(path) {
 }
 
 function isWindowsAbsolutePath(path) {
-  return /^[A-Za-z]:[\\/]/.test(String(path || ""));
+  return /^[A-Za-z]:(?:[\\/]|%5[cC]|%2[fF])/.test(String(path || ""));
 }
 
 function isLocalAbsolutePath(path) {
@@ -217,9 +217,9 @@ function splitImageSrcSuffix(src) {
 
 function decodeImagePath(path) {
   try {
-    return decodeURI(path);
+    return decodeURI(path).replace(/%5[cC]/g, "\\").replace(/%2[fF]/g, "/");
   } catch (_) {
-    return path;
+    return String(path || "").replace(/%5[cC]/g, "\\").replace(/%2[fF]/g, "/");
   }
 }
 
@@ -307,6 +307,7 @@ function shouldPreserveImageSrc(src) {
   if (!value || value.startsWith("#") || value.startsWith("//")) return true;
   if (isWindowsAbsolutePath(value)) return false;
   if (/^file:/i.test(value)) return false;
+  if (isWindowsAbsolutePath(decodeImagePath(value))) return false;
   return /^[A-Za-z][A-Za-z\d+.-]*:/.test(value);
 }
 
@@ -336,17 +337,28 @@ function resolveLocalImagePath(src, documentPath) {
   };
 }
 
-function rewriteMarkdownImageSources(documentPath) {
+async function rewriteMarkdownImageSources(documentPath) {
   if (!isTauriRuntime) return;
 
-  contentEl().querySelectorAll("img[src]").forEach((img) => {
+  const images = Array.from(contentEl().querySelectorAll("img[src]"));
+
+  await Promise.all(images.map(async (img) => {
     const originalSrc = img.getAttribute("src");
     const resolved = resolveLocalImagePath(originalSrc, documentPath);
     if (!resolved) return;
 
+    let imagePath = resolved.path;
+    if (isLocalAbsolutePath(imagePath)) {
+      imagePath = await invoke("resolve_image_path", {
+        path: imagePath,
+        documentPath,
+        workspaceRoot: workspace?.root || null,
+      }) || imagePath;
+    }
+
     img.dataset.mdOriginalSrc = originalSrc;
-    img.src = `${convertFileSrc(resolved.path)}${resolved.suffix}`;
-  });
+    img.src = `${convertFileSrc(imagePath)}${resolved.suffix}`;
+  }));
 }
 
 function getPortableMarkdownHTML() {
@@ -358,10 +370,10 @@ function getPortableMarkdownHTML() {
   return clone.innerHTML;
 }
 
-function renderMarkdown(raw, filePath = getActiveTab()?.path) {
+async function renderMarkdown(raw, filePath = getActiveTab()?.path) {
   const html = md.render(raw);
   contentEl().innerHTML = html;
-  rewriteMarkdownImageSources(filePath);
+  await rewriteMarkdownImageSources(filePath);
   contentEl().style.display = "block";
   emptyEl().style.display = "none";
   renderDocumentOutline();
