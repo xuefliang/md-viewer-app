@@ -17,6 +17,7 @@ import {
   saveThemeTypographySettings,
 } from "./theme-settings.js";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { exportDOCX } from "./docx-exporter.js";
 
 const searchParams = new URLSearchParams(window.location.search);
@@ -174,9 +175,193 @@ const BLOCK_TAGS = new Set([
   "UL",
 ]);
 
-function renderMarkdown(raw) {
+function getDirName(path) {
+  const value = String(path || "").replace(/[\\/]+$/, "");
+  const index = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
+  if (index < 0) return "";
+  if (index === 0) return value.slice(0, 1);
+  if (index === 2 && /^[A-Za-z]:/.test(value)) return value.slice(0, 3);
+  return value.slice(0, index);
+}
+
+function isWindowsAbsolutePath(path) {
+  return /^[A-Za-z]:[\\/]/.test(String(path || ""));
+}
+
+function isLocalAbsolutePath(path) {
+  const value = String(path || "");
+  return value.startsWith("/") || value.startsWith("\\\\") || isWindowsAbsolutePath(value);
+}
+
+function usesWindowsPath(path) {
+  const value = String(path || "");
+  return isWindowsAbsolutePath(value) || value.includes("\\");
+}
+
+function splitImageSrcSuffix(src) {
+  const queryIndex = src.indexOf("?");
+  const hashIndex = src.indexOf("#");
+  const suffixIndex = [queryIndex, hashIndex]
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0];
+
+  if (suffixIndex === undefined) {
+    return { pathPart: src, suffix: "" };
+  }
+
+  return {
+    pathPart: src.slice(0, suffixIndex),
+    suffix: src.slice(suffixIndex),
+  };
+}
+
+function decodeImagePath(path) {
+  try {
+    return decodeURI(path);
+  } catch (_) {
+    return path;
+  }
+}
+
+function fileUrlToPath(src) {
+  try {
+    const url = new URL(src);
+    if (url.protocol !== "file:") return null;
+
+    let pathname = decodeURIComponent(url.pathname);
+    if (url.host) {
+      return `\\\\${url.host}${pathname.replace(/\//g, "\\")}`;
+    }
+    if (/^\/[A-Za-z]:\//.test(pathname)) {
+      pathname = pathname.slice(1).replace(/\//g, "\\");
+    }
+    return pathname;
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeLocalPath(path, preferWindows = false) {
+  const separator = preferWindows ? "\\" : "/";
+  const uncMatch = String(path || "").match(/^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)(.*)$/);
+
+  if (preferWindows && uncMatch) {
+    const [, server, share, rest = ""] = uncMatch;
+    const parts = [];
+    rest
+      .replace(/^[\\/]+/, "")
+      .replace(/[\\/]+/g, "/")
+      .split("/")
+      .forEach((part) => {
+        if (!part || part === ".") return;
+        if (part === "..") {
+          if (parts.length) parts.pop();
+          return;
+        }
+        parts.push(part);
+      });
+
+    return `\\\\${server}\\${share}${parts.length ? `\\${parts.join("\\")}` : ""}`;
+  }
+
+  const normalized = String(path || "").replace(/[\\/]+/g, "/");
+  const hasDrive = /^[A-Za-z]:\//.test(normalized);
+  const isAbsolute = normalized.startsWith("/");
+  const prefix = hasDrive ? normalized.slice(0, 3) : isAbsolute ? "/" : "";
+  const parts = [];
+
+  normalized
+    .slice(prefix.length)
+    .split("/")
+    .forEach((part) => {
+      if (!part || part === ".") return;
+      if (part === "..") {
+        if (parts.length && parts[parts.length - 1] !== "..") {
+          parts.pop();
+        } else if (!prefix) {
+          parts.push(part);
+        }
+        return;
+      }
+      parts.push(part);
+    });
+
+  const body = parts.join(separator);
+  if (hasDrive) {
+    const drivePrefix = prefix.replace("/", separator);
+    return body ? `${drivePrefix}${body}` : drivePrefix;
+  }
+  if (isAbsolute) return body ? `${separator}${body}` : separator;
+  return body;
+}
+
+function joinLocalPath(baseDir, relativePath) {
+  const preferWindows = usesWindowsPath(baseDir);
+  const separator = preferWindows ? "\\" : "/";
+  const joined = `${String(baseDir || "").replace(/[\\/]+$/, "")}${separator}${relativePath}`;
+  return normalizeLocalPath(joined, preferWindows);
+}
+
+function shouldPreserveImageSrc(src) {
+  const value = String(src || "").trim();
+  if (!value || value.startsWith("#") || value.startsWith("//")) return true;
+  if (isWindowsAbsolutePath(value)) return false;
+  if (/^file:/i.test(value)) return false;
+  return /^[A-Za-z][A-Za-z\d+.-]*:/.test(value);
+}
+
+function resolveLocalImagePath(src, documentPath) {
+  const { pathPart, suffix } = splitImageSrcSuffix(String(src || "").trim());
+  if (!pathPart || shouldPreserveImageSrc(pathPart)) return null;
+
+  if (/^file:/i.test(pathPart)) {
+    const filePath = fileUrlToPath(pathPart);
+    return filePath ? { path: filePath, suffix } : null;
+  }
+
+  const decodedPath = decodeImagePath(pathPart);
+  if (isLocalAbsolutePath(decodedPath)) {
+    return {
+      path: normalizeLocalPath(decodedPath, usesWindowsPath(decodedPath)),
+      suffix,
+    };
+  }
+
+  const baseDir = getDirName(documentPath);
+  if (!baseDir) return null;
+
+  return {
+    path: joinLocalPath(baseDir, decodedPath),
+    suffix,
+  };
+}
+
+function rewriteMarkdownImageSources(documentPath) {
+  if (!isTauriRuntime) return;
+
+  contentEl().querySelectorAll("img[src]").forEach((img) => {
+    const originalSrc = img.getAttribute("src");
+    const resolved = resolveLocalImagePath(originalSrc, documentPath);
+    if (!resolved) return;
+
+    img.dataset.mdOriginalSrc = originalSrc;
+    img.src = `${convertFileSrc(resolved.path)}${resolved.suffix}`;
+  });
+}
+
+function getPortableMarkdownHTML() {
+  const clone = contentEl().cloneNode(true);
+  clone.querySelectorAll("img[data-md-original-src]").forEach((img) => {
+    img.setAttribute("src", img.dataset.mdOriginalSrc);
+    img.removeAttribute("data-md-original-src");
+  });
+  return clone.innerHTML;
+}
+
+function renderMarkdown(raw, filePath = getActiveTab()?.path) {
   const html = md.render(raw);
   contentEl().innerHTML = html;
+  rewriteMarkdownImageSources(filePath);
   contentEl().style.display = "block";
   emptyEl().style.display = "none";
   renderDocumentOutline();
@@ -1129,7 +1314,7 @@ async function handleExportHTML() {
   const themeCSS = getCurrentThemeCSS();
   const contentCSS = getContentCSS();
   const typographyCSS = getTypographyOverrideCSS();
-  const bodyHTML = contentEl().innerHTML;
+  const bodyHTML = getPortableMarkdownHTML();
   const dataTheme = document.body.getAttribute("data-theme") || "default";
 
   const html = `<!DOCTYPE html>
