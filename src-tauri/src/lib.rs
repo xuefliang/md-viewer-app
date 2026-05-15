@@ -40,6 +40,7 @@ struct WorkspacePayload {
 struct AppState {
     current_file: Mutex<Option<PathBuf>>,
     watched_files: Mutex<HashSet<PathBuf>>,
+    opened_paths: Mutex<Vec<String>>,
 }
 
 fn clamp_window_axis(value: f64, min: f64, max: f64, available: f64) -> f64 {
@@ -100,7 +101,10 @@ fn resize_window_for_display(window: &WebviewWindow) {
         available_height,
     );
 
-    let _ = window.set_size(Size::Logical(LogicalSize::new(width.round(), height.round())));
+    let _ = window.set_size(Size::Logical(LogicalSize::new(
+        width.round(),
+        height.round(),
+    )));
     let _ = window.center();
 }
 
@@ -109,6 +113,25 @@ fn is_markdown_file(path: &Path) -> bool {
         matches!(
             ext.to_string_lossy().to_ascii_lowercase().as_str(),
             "md" | "markdown" | "mdx" | "mkd"
+        )
+    })
+}
+
+fn is_image_file(path: &Path) -> bool {
+    path.extension().map_or(false, |ext| {
+        matches!(
+            ext.to_string_lossy().to_ascii_lowercase().as_str(),
+            "png"
+                | "jpg"
+                | "jpeg"
+                | "gif"
+                | "webp"
+                | "svg"
+                | "bmp"
+                | "ico"
+                | "avif"
+                | "tif"
+                | "tiff"
         )
     })
 }
@@ -177,6 +200,73 @@ fn existing_file(path: PathBuf) -> Option<String> {
             .to_string_lossy()
             .to_string(),
     )
+}
+
+fn opened_path_from_file(path: PathBuf) -> Option<String> {
+    if !is_markdown_file(&path) {
+        return None;
+    }
+    existing_file(path)
+}
+
+fn opened_path_from_url(url: &tauri::Url) -> Option<String> {
+    let path = url.to_file_path().ok()?;
+    opened_path_from_file(path)
+}
+
+fn opened_path_from_arg(arg: &str) -> Option<String> {
+    let trimmed = arg.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(url) = tauri::Url::parse(trimmed) {
+        if url.scheme() == "file" {
+            return opened_path_from_url(&url);
+        }
+    }
+
+    opened_path_from_file(PathBuf::from(trimmed))
+}
+
+fn opened_paths_from_args<I>(args: I) -> Vec<String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut seen = HashSet::new();
+    args.into_iter()
+        .skip(1)
+        .filter_map(|arg| opened_path_from_arg(&arg))
+        .filter(|path| seen.insert(path.clone()))
+        .collect()
+}
+
+fn store_initial_opened_paths(app: &tauri::AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+
+    if let Some(state) = app.try_state::<AppState>() {
+        state.opened_paths.lock().unwrap().extend(paths);
+    }
+}
+
+fn store_opened_paths(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
+    let paths = urls
+        .into_iter()
+        .filter_map(|url| opened_path_from_url(&url))
+        .collect::<Vec<_>>();
+
+    if paths.is_empty() {
+        return;
+    }
+
+    if let Some(state) = app.try_state::<AppState>() {
+        let mut opened_paths = state.opened_paths.lock().unwrap();
+        opened_paths.extend(paths.iter().cloned());
+    }
+
+    let _ = app.emit("opened", paths);
 }
 
 fn candidate_from_suffix(root: &Path, suffix: &[String]) -> Option<String> {
@@ -261,6 +351,14 @@ fn resolve_by_workspace_suffix(path: &str, roots: &[PathBuf]) -> Option<String> 
 fn get_initial_file(state: tauri::State<AppState>) -> Option<FilePayload> {
     let guard = state.current_file.lock().unwrap();
     guard.as_ref().and_then(|p| read_md_file(p).ok())
+}
+
+#[tauri::command]
+fn opened_paths(state: tauri::State<AppState>) -> Vec<String> {
+    let mut guard = state.opened_paths.lock().unwrap();
+    let paths = guard.clone();
+    guard.clear();
+    paths
 }
 
 #[tauri::command]
@@ -388,6 +486,19 @@ fn resolve_image_path(
 
     let roots = fallback_roots(document_path, workspace_root);
     resolve_by_workspace_suffix(&path, &roots)
+}
+
+#[tauri::command]
+fn read_image_file(path: String) -> Result<Vec<u8>, String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("Image not found: {}", path));
+    }
+    if !path_buf.is_file() || !is_image_file(&path_buf) {
+        return Err(format!("Not an image file: {}", path));
+    }
+
+    fs::read(&path_buf).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -529,20 +640,6 @@ async fn open_workspace_in_new_window(app: tauri::AppHandle, path: String) -> Re
     Ok(())
 }
 
-fn open_file_in_window(app: &tauri::AppHandle, path: PathBuf) {
-    if let Ok(payload) = read_md_file(&path) {
-        if let Some(state) = app.try_state::<AppState>() {
-            *state.current_file.lock().unwrap() = Some(path.clone());
-            let mut watched = state.watched_files.lock().unwrap();
-            if !watched.contains(&path) {
-                watched.insert(path.clone());
-                start_watcher(app.clone(), path.clone());
-            }
-        }
-        let _ = app.emit("load-file", payload);
-    }
-}
-
 fn start_watcher(app: tauri::AppHandle, path: PathBuf) {
     std::thread::spawn(move || {
         use std::time::{Duration, SystemTime};
@@ -580,12 +677,15 @@ pub fn run() {
         .manage(AppState {
             current_file: Mutex::new(None),
             watched_files: Mutex::new(HashSet::new()),
+            opened_paths: Mutex::new(Vec::new()),
         })
         .invoke_handler(tauri::generate_handler![
             get_initial_file,
+            opened_paths,
             open_file,
             list_markdown_files,
             resolve_image_path,
+            read_image_file,
             write_export_file,
             save_markdown_file,
             reveal_path,
@@ -596,24 +696,23 @@ pub fn run() {
                 resize_window_for_display(&window);
             }
 
-            let args: Vec<String> = std::env::args().collect();
-            if args.len() > 1 {
-                let file_path = PathBuf::from(&args[1]);
-                if file_path.exists()
-                    && file_path
-                        .extension()
-                        .map_or(false, |ext| ext.eq_ignore_ascii_case("md"))
-                {
-                    let handle = app.handle().clone();
-                    let path = file_path.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        open_file_in_window(&handle, path);
-                    });
-                }
-            }
+            let paths = opened_paths_from_args(std::env::args());
+            store_initial_opened_paths(app.handle(), paths);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running MD Viewer");
+        .build(tauri::generate_context!())
+        .expect("error while building MD Viewer")
+        .run(|app, event| {
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+            {
+                if let tauri::RunEvent::Opened { urls } = event {
+                    store_opened_paths(app, urls);
+                }
+            }
+
+            #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
+            {
+                let _ = (app, event);
+            }
+        });
 }

@@ -70,14 +70,16 @@ let looseFiles = [];
 let contextTabId = null;
 let contextWorkspacePath = null;
 let contextWorkspaceTarget = null;
+let contextImageTarget = null;
 let isUpdateInstalling = false;
 let viewMode = "preview";
 let pendingPreviewRenderId = 0;
 let unsavedDecisionResolver = null;
 const collapsedWorkspaceDirs = new Set();
-const SIDEBAR_WIDTH_KEY = "md-viewer-sidebar-width";
+const SIDEBAR_WIDTH_KEY = "md-viewer-sidebar-width-v2";
 const OUTLINE_HEIGHT_KEY = "md-viewer-outline-height";
 const VIEW_MODE_KEY = "md-viewer-view-mode";
+const DEFAULT_SIDEBAR_WIDTH = 288;
 const SIDEBAR_MIN_WIDTH = 248;
 const SIDEBAR_MAX_WIDTH = 560;
 const READER_MIN_WIDTH = 420;
@@ -376,6 +378,7 @@ async function rewriteMarkdownImageSources(documentPath) {
     }
 
     img.dataset.mdOriginalSrc = originalSrc;
+    img.dataset.mdResolvedPath = imagePath;
     img.src = `${convertFileSrc(imagePath)}${resolved.suffix}`;
   }));
 }
@@ -385,6 +388,7 @@ function getPortableMarkdownHTML() {
   clone.querySelectorAll("img[data-md-original-src]").forEach((img) => {
     img.setAttribute("src", img.dataset.mdOriginalSrc);
     img.removeAttribute("data-md-original-src");
+    img.removeAttribute("data-md-resolved-path");
   });
   return clone.innerHTML;
 }
@@ -1092,7 +1096,7 @@ function updateSidePanel() {
 function initScreenshotDemo() {
   const shell = document.getElementById("app-shell");
   const sidePanel = document.getElementById("side-panel");
-  shell?.style.setProperty("--side-panel-width", "350px");
+  shell?.style.setProperty("--side-panel-width", `${DEFAULT_SIDEBAR_WIDTH}px`);
   sidePanel?.style.setProperty("--outline-panel-height", "230px");
 
   setWorkspace({
@@ -2251,6 +2255,13 @@ function hideWorkspaceContextMenu() {
   contextWorkspaceTarget = null;
 }
 
+function hideImageContextMenu() {
+  const menu = document.getElementById("image-context-menu");
+  if (!menu) return;
+  menu.classList.add("hidden");
+  contextImageTarget = null;
+}
+
 function positionContextMenu(menu, x, y) {
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
@@ -2379,6 +2390,14 @@ function showWorkspaceContextMenu(target, x, y) {
   positionContextMenu(menu, x, y);
 }
 
+function showImageContextMenu(image, x, y) {
+  const menu = document.getElementById("image-context-menu");
+  if (!menu) return;
+
+  contextImageTarget = image;
+  positionContextMenu(menu, x, y);
+}
+
 async function runWorkspaceContextAction(action) {
   if (!contextWorkspacePath) return;
   if (action === "reveal") {
@@ -2398,10 +2417,148 @@ async function runWorkspaceContextAction(action) {
   }
 }
 
+function getImageMimeType(pathOrUrl) {
+  const cleanValue = String(pathOrUrl || "").split(/[?#]/)[0].toLowerCase();
+  if (cleanValue.endsWith(".png")) return "image/png";
+  if (cleanValue.endsWith(".jpg") || cleanValue.endsWith(".jpeg")) return "image/jpeg";
+  if (cleanValue.endsWith(".gif")) return "image/gif";
+  if (cleanValue.endsWith(".webp")) return "image/webp";
+  if (cleanValue.endsWith(".svg")) return "image/svg+xml";
+  if (cleanValue.endsWith(".bmp")) return "image/bmp";
+  if (cleanValue.endsWith(".ico")) return "image/x-icon";
+  if (cleanValue.endsWith(".avif")) return "image/avif";
+  if (cleanValue.endsWith(".tif") || cleanValue.endsWith(".tiff")) return "image/tiff";
+  return "";
+}
+
+async function readLocalImageBlob(image) {
+  const path = image?.dataset?.mdResolvedPath;
+  if (!isTauriRuntime || !path) return null;
+
+  try {
+    const bytes = await invoke("read_image_file", { path });
+    return new Blob([new Uint8Array(bytes)], { type: getImageMimeType(path) });
+  } catch (_) {
+    return null;
+  }
+}
+
+function loadImageElementFromBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("图片无法加载，不能复制。"));
+    };
+    image.src = url;
+  });
+}
+
+async function getDrawableImageFromBlob(blob) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(blob);
+    } catch (_) {
+      // Some image formats, such as SVG, need to be loaded through an Image element.
+    }
+  }
+
+  return loadImageElementFromBlob(blob);
+}
+
+async function getDrawableImageSource(image) {
+  const localBlob = await readLocalImageBlob(image);
+  if (localBlob) {
+    return getDrawableImageFromBlob(localBlob);
+  }
+
+  const imageUrl = image.currentSrc || image.src;
+
+  if (imageUrl) {
+    try {
+      const response = await fetch(imageUrl);
+      if (response.ok) {
+        const blob = await response.blob();
+        return getDrawableImageFromBlob(blob);
+      }
+    } catch (_) {
+      // Fall back to drawing the already-rendered image element.
+    }
+  }
+
+  if (!image.complete) {
+    await image.decode();
+  }
+
+  return image;
+}
+
+function imageToPngBlob(image) {
+  return new Promise((resolve, reject) => {
+    (async () => {
+      const source = await getDrawableImageSource(image);
+      const width = source.naturalWidth || source.width || image.naturalWidth;
+      const height = source.naturalHeight || source.height || image.naturalHeight;
+
+      if (!width || !height) {
+        throw new Error("图片没有可读取的像素数据。");
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("当前环境无法处理图片。");
+
+      try {
+        ctx.drawImage(source, 0, 0, width, height);
+      } finally {
+        if (typeof source.close === "function") source.close();
+      }
+
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("图片无法编码为剪贴板格式。"));
+      }, "image/png");
+    })().catch(reject);
+  });
+}
+
+async function copyImageToClipboard(image) {
+  if (!image) return;
+  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+    throw new Error("当前环境不支持复制图片数据。");
+  }
+
+  const pngBlob = imageToPngBlob(image);
+  let clipboardItem;
+  try {
+    clipboardItem = new ClipboardItem({ "image/png": pngBlob });
+  } catch (_) {
+    clipboardItem = new ClipboardItem({ "image/png": await pngBlob });
+  }
+
+  await navigator.clipboard.write([clipboardItem]);
+}
+
+async function runImageContextAction(action, image = contextImageTarget) {
+  if (action === "copy-image") {
+    await copyImageToClipboard(image);
+  }
+}
+
 function initContextMenus() {
   const tabMenu = document.getElementById("tab-context-menu");
   const workspaceMenu = document.getElementById("workspace-context-menu");
-  if (!tabMenu || !workspaceMenu) return;
+  const imageMenu = document.getElementById("image-context-menu");
+  if (!tabMenu || !workspaceMenu || !imageMenu) return;
 
   document.addEventListener("contextmenu", (e) => {
     e.preventDefault();
@@ -2409,7 +2566,16 @@ function initContextMenus() {
     const tabEl = e.target.closest(".tab");
     if (tabEl && tabListEl().contains(tabEl)) {
       hideWorkspaceContextMenu();
+      hideImageContextMenu();
       showTabContextMenu(tabEl.dataset.tabId, e.clientX, e.clientY);
+      return;
+    }
+
+    const imageEl = e.target.closest("#markdown-content img");
+    if (imageEl && contentEl().contains(imageEl)) {
+      hideTabContextMenu();
+      hideWorkspaceContextMenu();
+      showImageContextMenu(imageEl, e.clientX, e.clientY);
       return;
     }
 
@@ -2417,6 +2583,7 @@ function initContextMenus() {
     const fileEl = e.target.closest("[data-workspace-file]");
     if (fileEl && workspaceBrowser?.contains(fileEl)) {
       hideTabContextMenu();
+      hideImageContextMenu();
       showWorkspaceContextMenu(
         {
           type: "file",
@@ -2433,6 +2600,7 @@ function initContextMenus() {
     if (dirEl && workspaceBrowser?.contains(dirEl) && workspace?.root) {
       const isWorkspaceRoot = dirEl.dataset.workspaceDir === "";
       hideTabContextMenu();
+      hideImageContextMenu();
       showWorkspaceContextMenu(
         {
           type: "folder",
@@ -2448,6 +2616,7 @@ function initContextMenus() {
 
     hideTabContextMenu();
     hideWorkspaceContextMenu();
+    hideImageContextMenu();
   });
 
   tabMenu.addEventListener("click", async (e) => {
@@ -2466,21 +2635,40 @@ function initContextMenus() {
     hideWorkspaceContextMenu();
   });
 
+  imageMenu.addEventListener("click", async (e) => {
+    const item = e.target.closest("[data-image-action]");
+    if (!item || item.disabled) return;
+
+    const image = contextImageTarget;
+    const actionPromise = runImageContextAction(item.dataset.imageAction, image);
+    hideImageContextMenu();
+
+    try {
+      await actionPromise;
+    } catch (error) {
+      console.error("Failed to copy image:", error);
+      window.alert(`复制图片失败：${getErrorMessage(error)}`);
+    }
+  });
+
   document.addEventListener("click", (e) => {
     if (!tabMenu.contains(e.target)) hideTabContextMenu();
     if (!workspaceMenu.contains(e.target)) hideWorkspaceContextMenu();
+    if (!imageMenu.contains(e.target)) hideImageContextMenu();
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       hideTabContextMenu();
       hideWorkspaceContextMenu();
+      hideImageContextMenu();
     }
   });
 
   window.addEventListener("blur", () => {
     hideTabContextMenu();
     hideWorkspaceContextMenu();
+    hideImageContextMenu();
   });
 }
 
@@ -3216,6 +3404,15 @@ async function handleDroppedPath(path) {
   await loadWorkspace(path);
 }
 
+async function handleOpenedPaths(paths) {
+  if (!Array.isArray(paths)) return;
+
+  for (const path of paths) {
+    if (typeof path !== "string" || !path.trim()) continue;
+    await handleDroppedPath(path);
+  }
+}
+
 async function chooseWorkspace() {
   try {
     const selected = await open({
@@ -3355,6 +3552,8 @@ function initResizablePanels() {
   const savedSidebarWidth = Number.parseFloat(localStorage.getItem(SIDEBAR_WIDTH_KEY));
   if (Number.isFinite(savedSidebarWidth)) {
     setSidebarWidth(savedSidebarWidth, { persist: false });
+  } else {
+    setSidebarWidth(DEFAULT_SIDEBAR_WIDTH, { persist: false });
   }
 
   requestAnimationFrame(() => {
@@ -3744,6 +3943,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       createTab(path, content);
     });
 
+    listen("opened", (event) => {
+      void handleOpenedPaths(event.payload);
+    });
+
     listen("file-changed", async (event) => {
       const { path, content } = event.payload;
       await handleExternalFileChange(path, content);
@@ -3762,9 +3965,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       await loadWorkspace(initialWorkspacePath);
     } else {
       try {
-        const initial = await invoke("get_initial_file");
-        if (initial) {
-          createTab(initial.path, initial.content);
+        const initialOpenedPaths = await invoke("opened_paths");
+        if (Array.isArray(initialOpenedPaths) && initialOpenedPaths.length > 0) {
+          await handleOpenedPaths(initialOpenedPaths);
+        } else {
+          const initial = await invoke("get_initial_file");
+          if (initial) {
+            createTab(initial.path, initial.content);
+          }
         }
       } catch (_) {}
     }

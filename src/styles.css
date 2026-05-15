@@ -59,7 +59,7 @@ body.is-resizing-outline * {
 }
 
 #app-shell {
-  --side-panel-width: 326px;
+  --side-panel-width: 288px;
   display: grid;
   grid-template-columns: var(--side-panel-width) minmax(0, 1fr);
   width: 100%;

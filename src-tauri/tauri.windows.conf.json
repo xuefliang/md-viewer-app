@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "targets": ["nsis"],
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown", "mkd", "mdx"],
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "role": "Viewer",
+        "mimeType": "text/markdown",
+        "rank": "Default"
+      }
+    ]
+  }
+}
