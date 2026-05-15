@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 - 2026-05-15
+
+- Added Mermaid diagram rendering for `mermaid` fenced code blocks.
+- Re-render Mermaid diagrams when switching preview themes.
+- Show Mermaid render errors with the original diagram source instead of leaving a blank preview.
+
 ## 0.3.1 - 2026-05-15
 
 - Added image right-click copying from rendered Markdown previews.
