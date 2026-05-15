@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 - 2026-05-15
+
+- Added image right-click copying from rendered Markdown previews.
+- Added Windows installer file association support for Markdown files.
+- Fixed Markdown files opened from the operating system not loading into the app.
+- Reduced the default sidebar width on first launch.
+
 ## 0.3.0 - 2026-05-13
 
 - Added nested document outline rendering for `h1` through `h6`.
