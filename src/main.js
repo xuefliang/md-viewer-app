@@ -49,6 +49,22 @@ const md = markdownit({
     return "";
   },
 });
+const defaultFenceRenderer = md.renderer.rules.fence;
+
+md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  const language = String(token.info || "").trim().split(/\s+/)[0].toLowerCase();
+
+  if (language === "mermaid") {
+    return `<div class="mermaid-diagram"><pre class="mermaid-source"><code>${escapeHTML(token.content)}</code></pre></div>`;
+  }
+
+  if (typeof defaultFenceRenderer === "function") {
+    return defaultFenceRenderer(tokens, idx, options, env, self);
+  }
+
+  return `<pre><code>${escapeHTML(token.content)}</code></pre>`;
+};
 
 const contentEl = () => document.getElementById("markdown-content");
 const documentWorkspaceEl = () => document.getElementById("document-workspace");
@@ -75,6 +91,8 @@ let isUpdateInstalling = false;
 let viewMode = "preview";
 let pendingPreviewRenderId = 0;
 let unsavedDecisionResolver = null;
+let mermaidModulePromise = null;
+let mermaidRenderCounter = 0;
 const collapsedWorkspaceDirs = new Set();
 const SIDEBAR_WIDTH_KEY = "md-viewer-sidebar-width-v2";
 const OUTLINE_HEIGHT_KEY = "md-viewer-outline-height";
@@ -393,10 +411,95 @@ function getPortableMarkdownHTML() {
   return clone.innerHTML;
 }
 
+function getMermaidSource(diagram) {
+  return diagram.querySelector(".mermaid-source code")?.textContent?.trim() || "";
+}
+
+function getMermaidConfig() {
+  const themeDefinition = getCurrentThemeDefinition();
+  const colors = themeDefinition.colorScheme;
+  const contentStyle = window.getComputedStyle(contentEl());
+
+  return {
+    startOnLoad: false,
+    securityLevel: "strict",
+    suppressErrorRendering: true,
+    theme: themeDefinition.category === "dark" ? "dark" : "default",
+    themeVariables: {
+      fontFamily: contentStyle.fontFamily,
+      background: colors.background.page,
+      primaryColor: colors.background.surface || colors.background.page,
+      primaryTextColor: colors.text.primary,
+      primaryBorderColor: colors.table.border,
+      lineColor: colors.table.border,
+    },
+  };
+}
+
+async function getMermaid() {
+  mermaidModulePromise ||= import("mermaid").then((module) => module.default);
+  return mermaidModulePromise;
+}
+
+function showMermaidError(diagram, source, error) {
+  const message = document.createElement("div");
+  message.className = "mermaid-error";
+  message.textContent = `Mermaid 图表渲染失败：${getErrorMessage(error)}`;
+
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.textContent = source;
+  pre.appendChild(code);
+
+  diagram.replaceChildren(message, pre);
+}
+
+async function renderMermaidDiagrams() {
+  const diagrams = Array.from(contentEl().querySelectorAll(".mermaid-diagram"));
+  if (!diagrams.length) return;
+
+  let mermaid;
+  try {
+    mermaid = await getMermaid();
+    mermaid.initialize(getMermaidConfig());
+  } catch (error) {
+    diagrams.forEach((diagram) => {
+      const source = getMermaidSource(diagram);
+      diagram.classList.add("is-error");
+      showMermaidError(diagram, source, error);
+    });
+    return;
+  }
+
+  await Promise.all(diagrams.map(async (diagram) => {
+    const source = getMermaidSource(diagram);
+    if (!source) return;
+
+    const renderId = `mdv-mermaid-${++mermaidRenderCounter}`;
+    diagram.classList.add("is-rendering");
+    diagram.classList.remove("is-error", "is-rendered");
+
+    try {
+      const { svg, bindFunctions } = await mermaid.render(renderId, source);
+      if (!diagram.isConnected) return;
+      diagram.innerHTML = svg;
+      diagram.classList.add("is-rendered");
+      bindFunctions?.(diagram);
+    } catch (error) {
+      if (!diagram.isConnected) return;
+      diagram.classList.add("is-error");
+      showMermaidError(diagram, source, error);
+    } finally {
+      diagram.classList.remove("is-rendering");
+    }
+  }));
+}
+
 async function renderMarkdown(raw, filePath = getActiveTab()?.path) {
   const html = md.render(raw);
   contentEl().innerHTML = html;
   await rewriteMarkdownImageSources(filePath);
+  await renderMermaidDiagrams();
   documentWorkspaceEl().hidden = false;
   emptyEl().style.display = "none";
   renderDocumentOutline();
@@ -3294,6 +3397,7 @@ function initTheme() {
     const activeTab = getActiveTab();
     if (activeTab) {
       activeTab.themeId = nextTheme;
+      void renderMarkdown(activeTab.content);
     }
     select.value = nextTheme;
     updateSidePanel();

@@ -994,6 +994,38 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   border-radius: 0;
 }
 
+#markdown-content .mermaid-diagram {
+  margin: 18px 0;
+  overflow-x: auto;
+  padding: 8px 0;
+  text-align: center;
+}
+
+#markdown-content .mermaid-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+#markdown-content .mermaid-diagram.is-error {
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--md-surface, var(--bg));
+  text-align: left;
+}
+
+#markdown-content .mermaid-diagram.is-error pre {
+  margin: 0;
+}
+
+#markdown-content .mermaid-error {
+  margin-bottom: 10px;
+  color: #b42318;
+  font-weight: 600;
+}
+
 #markdown-content blockquote {
   margin: 0;
   padding: 1px 13px;
