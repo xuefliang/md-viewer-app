@@ -1,7 +1,17 @@
 export const contentEl = () => document.getElementById("markdown-content");
 export const documentWorkspaceEl = () => document.getElementById("document-workspace");
 export const editorEl = () => document.getElementById("markdown-editor");
+export const editorFindHighlightsEl = () => document.getElementById("editor-find-highlights");
+export const editorLineNumbersEl = () => document.getElementById("editor-line-numbers");
+export const editorShellEl = () => document.getElementById("editor-shell");
 export const emptyEl = () => document.getElementById("empty-state");
+export const findBarEl = () => document.getElementById("find-bar");
+export const findCloseButton = () => document.getElementById("find-close-btn");
+export const findInputEl = () => document.getElementById("find-input");
+export const findNextButton = () => document.getElementById("find-next-btn");
+export const findPreviousButton = () => document.getElementById("find-prev-btn");
+export const findStatusEl = () => document.getElementById("find-status");
+export const findToggleButton = () => document.getElementById("find-toggle-btn");
 export const tabListEl = () => document.getElementById("tab-list");
 export const themeSelect = () => document.getElementById("theme-select");
 export const languageSelect = () => document.getElementById("settings-language-select");

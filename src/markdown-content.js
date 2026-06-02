@@ -171,6 +171,9 @@ export async function renderMarkdown(raw, {
 
 export function getPortableMarkdownHTML() {
   const clone = contentEl().cloneNode(true);
+  clone.querySelectorAll("mark.preview-find-highlight").forEach((mark) => {
+    mark.replaceWith(document.createTextNode(mark.textContent || ""));
+  });
   clone.querySelectorAll("img[data-md-original-src]").forEach((img) => {
     img.setAttribute("src", img.dataset.mdOriginalSrc);
     img.removeAttribute("data-md-original-src");

@@ -94,6 +94,9 @@ function normalizeCopiedPlainText(text) {
 }
 
 function prepareCopyFragment(wrapper) {
+  wrapper.querySelectorAll("mark.preview-find-highlight").forEach((mark) => {
+    mark.replaceWith(document.createTextNode(mark.textContent || ""));
+  });
   removeCopyWhitespaceNodes(wrapper);
   removeEmptyCopyBlocks(wrapper);
 }

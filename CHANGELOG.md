@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5 - 2026-06-02
+
+- Added line numbers to the Markdown editor in edit and split views, including synchronized scrolling and current-line highlighting.
+- Added in-app document search with keyboard shortcuts, match counts, previous/next navigation, and close behavior.
+- Added search highlighting in preview, edit, and split views without forcing view mode changes.
+- Kept search highlights out of copy, HTML, DOCX, and print/PDF output.
+
 ## 0.3.4 - 2026-05-22
 
 - Added a New Markdown action that opens an untitled editable draft before choosing a save location.

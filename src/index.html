@@ -89,6 +89,27 @@
             </div>
             <button id="save-md-btn" type="button" disabled title="保存 Markdown (⌘S)" aria-label="保存 Markdown" data-i18n="editor.save" data-i18n-title="editor.saveTitle" data-i18n-aria-label="editor.save">保存</button>
             <span id="editor-status" aria-live="polite"></span>
+            <div id="find-bar" class="hidden" role="search" aria-label="查找" data-i18n-aria-label="find.aria">
+              <label class="visually-hidden" for="find-input" data-i18n="find.label">查找</label>
+              <input
+                id="find-input"
+                type="search"
+                placeholder="查找"
+                autocomplete="off"
+                spellcheck="false"
+                data-i18n-placeholder="find.placeholder"
+              />
+              <span id="find-status" aria-live="polite">0/0</span>
+              <button id="find-prev-btn" type="button" title="上一个 (Shift+Enter)" aria-label="上一个" data-i18n-title="find.previousTitle" data-i18n-aria-label="find.previous">‹</button>
+              <button id="find-next-btn" type="button" title="下一个 (Enter)" aria-label="下一个" data-i18n-title="find.nextTitle" data-i18n-aria-label="find.next">›</button>
+              <button id="find-close-btn" type="button" title="关闭查找 (Esc)" aria-label="关闭查找" data-i18n-title="find.closeTitle" data-i18n-aria-label="find.close">×</button>
+            </div>
+            <button id="find-toggle-btn" type="button" disabled title="查找 (⌘F)" aria-label="查找" data-i18n-title="find.toggleTitle" data-i18n-aria-label="find.aria">
+              <svg class="toolbar-icon" aria-hidden="true" viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m16 16 5 5"></path>
+              </svg>
+            </button>
             <select id="theme-select" aria-label="主题" data-i18n-aria-label="theme.aria"></select>
             <button id="settings-btn" type="button" title="设置" aria-label="设置" data-i18n="settings.button" data-i18n-title="settings.title" data-i18n-aria-label="settings.title">设置</button>
             <div id="export-wrapper">
@@ -107,16 +128,22 @@
             <p class="hint" data-i18n="empty.hint">拖入目录后，可以从左侧列表选择文档阅读</p>
           </div>
           <div id="document-workspace" class="mode-preview" hidden>
-            <textarea
-              id="markdown-editor"
-              aria-label="Markdown 编辑器"
-              data-i18n-aria-label="editor.aria"
-              spellcheck="false"
-              autocapitalize="off"
-              autocomplete="off"
-              autocorrect="off"
-              wrap="soft"
-            ></textarea>
+            <div id="editor-shell">
+              <div id="editor-line-numbers" aria-hidden="true"></div>
+              <div id="editor-text-wrap">
+                <pre id="editor-find-highlights" aria-hidden="true"></pre>
+                <textarea
+                  id="markdown-editor"
+                  aria-label="Markdown 编辑器"
+                  data-i18n-aria-label="editor.aria"
+                  spellcheck="false"
+                  autocapitalize="off"
+                  autocomplete="off"
+                  autocorrect="off"
+                  wrap="off"
+                ></textarea>
+              </div>
+            </div>
             <article id="markdown-content" class="markdown-body"></article>
           </div>
         </div>

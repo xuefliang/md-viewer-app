@@ -34,8 +34,17 @@ import {
   currentThemeId,
   documentWorkspaceEl,
   editorEl,
+  editorFindHighlightsEl,
+  editorLineNumbersEl,
   editorStatusEl,
   emptyEl,
+  findBarEl,
+  findCloseButton,
+  findInputEl,
+  findNextButton,
+  findPreviousButton,
+  findStatusEl,
+  findToggleButton,
   languageSelect,
   readerContentEl,
   saveMarkdownButton,
@@ -99,6 +108,11 @@ let unsavedDecisionResolver = null;
 let settingsUpdateStatusKey = "";
 let settingsUpdateStatusParams = {};
 const collapsedWorkspaceDirs = new Set();
+let lineNumberRenderId = 0;
+let findMatches = [];
+let activeFindMatchIndex = -1;
+let findMatchMode = "preview";
+let previewFindRestoreQueue = [];
 const VIEW_MODE_KEY = "md-viewer-view-mode";
 const SCREENSHOT_DEMO_ROOT = "/Users/demo/Documents/Markdown Library";
 const UPDATE_CHECK_DELAY_MS = 1200;
@@ -262,6 +276,12 @@ async function renderMarkdown(raw, filePath = getActiveTab()?.path) {
     workspaceRoot: workspace?.root || null,
     afterRender() {
       renderDocumentOutline();
+      if (isFindOpen() && getActiveFindMode() === "preview") {
+        rebuildFindMatches();
+        if (findMatches.length) revealFindMatch(findMatches[activeFindMatchIndex]);
+      } else {
+        clearPreviewFindHighlights();
+      }
       updateBackToTopButton();
     },
   });
@@ -371,6 +391,21 @@ function getLineStartOffset(value, lineIndex) {
   return offset;
 }
 
+function getLineIndexFromOffset(value, offset) {
+  const safeOffset = Math.min(Math.max(offset, 0), value.length);
+  let lineIndex = 0;
+  let position = 0;
+
+  while (position < safeOffset) {
+    const nextBreak = value.indexOf("\n", position);
+    if (nextBreak === -1 || nextBreak >= safeOffset) break;
+    lineIndex += 1;
+    position = nextBreak + 1;
+  }
+
+  return lineIndex;
+}
+
 function getEditorLineScrollTop(editor, lineIndex) {
   const styles = window.getComputedStyle(editor);
   const fontSize = Number.parseFloat(styles.fontSize) || 14;
@@ -378,6 +413,90 @@ function getEditorLineScrollTop(editor, lineIndex) {
   const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
 
   return Math.max(0, paddingTop + lineIndex * lineHeight - lineHeight * 2);
+}
+
+function getEditorLineMetrics(editor) {
+  const styles = window.getComputedStyle(editor);
+  const fontSize = Number.parseFloat(styles.fontSize) || 14;
+  const lineHeight = Number.parseFloat(styles.lineHeight) || fontSize * 1.65;
+  return {
+    lineHeight,
+    paddingTop: Number.parseFloat(styles.paddingTop) || 0,
+    paddingBottom: Number.parseFloat(styles.paddingBottom) || 0,
+  };
+}
+
+function getEditorLineCount(value) {
+  if (!value) return 1;
+  return value.split("\n").length;
+}
+
+function syncLineNumberScroll() {
+  const editor = editorEl();
+  const lineNumbers = editorLineNumbersEl();
+  if (!editor || !lineNumbers) return;
+
+  lineNumbers.scrollTop = editor.scrollTop;
+  syncEditorFindHighlightScroll();
+}
+
+function updateCurrentEditorLineNumber(lineIndex = null) {
+  const editor = editorEl();
+  const lineNumbers = editorLineNumbersEl();
+  if (!editor || !lineNumbers) return;
+
+  const nextLineIndex = lineIndex === null ? getLineIndexFromOffset(editor.value, editor.selectionStart) : lineIndex;
+  const previousLineIndex = Number.parseInt(lineNumbers.dataset.activeLine || "-1", 10);
+  if (previousLineIndex === nextLineIndex) return;
+
+  lineNumbers.querySelector(".active")?.classList.remove("active");
+  lineNumbers.querySelector(`[data-line="${nextLineIndex}"]`)?.classList.add("active");
+  lineNumbers.dataset.activeLine = String(nextLineIndex);
+}
+
+function renderEditorLineNumbers() {
+  const editor = editorEl();
+  const lineNumbers = editorLineNumbersEl();
+  if (!editor || !lineNumbers) return;
+
+  const lineCount = getEditorLineCount(editor.value);
+  const { lineHeight, paddingTop, paddingBottom } = getEditorLineMetrics(editor);
+  const currentCount = Number.parseInt(lineNumbers.dataset.lineCount || "0", 10);
+  const currentLineHeight = Number.parseFloat(lineNumbers.dataset.lineHeight || "0");
+  const currentPaddingTop = Number.parseFloat(lineNumbers.dataset.paddingTop || "0");
+  const currentPaddingBottom = Number.parseFloat(lineNumbers.dataset.paddingBottom || "0");
+
+  if (
+    currentCount !== lineCount ||
+    Math.abs(currentLineHeight - lineHeight) > 0.1 ||
+    Math.abs(currentPaddingTop - paddingTop) > 0.1 ||
+    Math.abs(currentPaddingBottom - paddingBottom) > 0.1
+  ) {
+    const widthDigits = String(lineCount).length;
+    lineNumbers.dataset.lineCount = String(lineCount);
+    lineNumbers.dataset.lineHeight = String(lineHeight);
+    lineNumbers.dataset.paddingTop = String(paddingTop);
+    lineNumbers.dataset.paddingBottom = String(paddingBottom);
+    lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, index) => (
+      `<span data-line="${index}" style="height:${lineHeight}px">${index + 1}</span>`
+    )).join("");
+    lineNumbers.style.lineHeight = `${lineHeight}px`;
+    lineNumbers.style.paddingTop = `${paddingTop}px`;
+    lineNumbers.style.paddingBottom = `${paddingBottom}px`;
+    documentWorkspaceEl()?.style.setProperty("--editor-line-number-width", `${Math.max(48, widthDigits * 9 + 30)}px`);
+    lineNumbers.dataset.activeLine = "-1";
+  }
+
+  syncLineNumberScroll();
+  updateCurrentEditorLineNumber();
+}
+
+function scheduleLineNumberRender() {
+  if (lineNumberRenderId) return;
+  lineNumberRenderId = requestAnimationFrame(() => {
+    lineNumberRenderId = 0;
+    renderEditorLineNumbers();
+  });
 }
 
 function scrollEditorToLine(lineIndex) {
@@ -390,6 +509,385 @@ function scrollEditorToLine(lineIndex) {
   editor.setSelectionRange(position, position);
   editor.scrollTop = getEditorLineScrollTop(editor, lineIndex);
   tab.editorScrollY = editor.scrollTop;
+  syncLineNumberScroll();
+  updateCurrentEditorLineNumber(lineIndex);
+}
+
+function normalizeFindQuery(value) {
+  return String(value || "").toLocaleLowerCase();
+}
+
+function getFindQuery() {
+  return findInputEl()?.value || "";
+}
+
+function isFindOpen() {
+  return !findBarEl()?.classList.contains("hidden");
+}
+
+function clearFindMatches() {
+  findMatches = [];
+  activeFindMatchIndex = -1;
+  clearPreviewFindHighlights();
+  clearEditorFindHighlights();
+}
+
+function setFindStatus() {
+  const status = findStatusEl();
+  if (!status) return;
+
+  if (!getFindQuery()) {
+    status.textContent = t("find.noMatches");
+    return;
+  }
+
+  status.textContent = findMatches.length
+    ? `${activeFindMatchIndex + 1}/${findMatches.length}`
+    : t("find.noMatches");
+}
+
+function collectFindMatches(query, value) {
+  const normalizedQuery = normalizeFindQuery(query);
+  if (!normalizedQuery) return [];
+
+  const normalizedValue = normalizeFindQuery(value);
+  const matches = [];
+  let offset = 0;
+  let lineIndex = 0;
+  let nextLineBreak = value.indexOf("\n");
+
+  while (offset <= normalizedValue.length) {
+    const index = normalizedValue.indexOf(normalizedQuery, offset);
+    if (index === -1) break;
+    while (nextLineBreak !== -1 && nextLineBreak < index) {
+      lineIndex += 1;
+      nextLineBreak = value.indexOf("\n", nextLineBreak + 1);
+    }
+    matches.push({
+      start: index,
+      end: index + query.length,
+      lineIndex,
+    });
+    offset = index + Math.max(1, normalizedQuery.length);
+  }
+
+  return matches;
+}
+
+function getActiveFindMode() {
+  return viewMode === "preview" ? "preview" : "editor";
+}
+
+function collectEditorFindMatches(query) {
+  return collectFindMatches(query, editorEl()?.value || "");
+}
+
+function syncEditorFindHighlightScroll() {
+  const editor = editorEl();
+  const highlights = editorFindHighlightsEl();
+  if (!editor || !highlights) return;
+
+  highlights.scrollTop = editor.scrollTop;
+  highlights.scrollLeft = editor.scrollLeft;
+}
+
+function clearEditorFindHighlights() {
+  const highlights = editorFindHighlightsEl();
+  const editor = editorEl();
+  if (highlights) highlights.innerHTML = "";
+  editor?.classList.remove("has-find-highlights");
+}
+
+function renderEditorFindHighlights() {
+  const editor = editorEl();
+  const highlights = editorFindHighlightsEl();
+  if (!editor || !highlights) return;
+
+  if (findMatchMode !== "editor" || !findMatches.length || !getFindQuery()) {
+    clearEditorFindHighlights();
+    return;
+  }
+
+  let html = "";
+  let offset = 0;
+  findMatches.forEach((match, index) => {
+    html += escapeHTML(editor.value.slice(offset, match.start));
+    const className = index === activeFindMatchIndex
+      ? "editor-find-highlight active"
+      : "editor-find-highlight";
+    html += `<mark class="${className}">${escapeHTML(editor.value.slice(match.start, match.end))}</mark>`;
+    offset = match.end;
+  });
+  html += escapeHTML(editor.value.slice(offset));
+  if (html.endsWith("\n")) html += " ";
+
+  highlights.innerHTML = html;
+  editor.classList.add("has-find-highlights");
+  syncEditorFindHighlightScroll();
+}
+
+function unwrapPreviewFindHighlight(mark) {
+  const parent = mark.parentNode;
+  if (!parent) return;
+  const text = document.createTextNode(mark.textContent || "");
+  parent.replaceChild(text, mark);
+  parent.normalize();
+}
+
+function clearPreviewFindHighlights() {
+  previewFindRestoreQueue.forEach((mark) => {
+    if (mark.isConnected) unwrapPreviewFindHighlight(mark);
+  });
+  previewFindRestoreQueue = [];
+  contentEl()?.querySelectorAll("mark.preview-find-highlight").forEach(unwrapPreviewFindHighlight);
+}
+
+function isPreviewFindTextNode(node) {
+  if (!node?.nodeValue || !node.nodeValue.trim()) return false;
+  const parent = node.parentElement;
+  if (!parent) return false;
+  if (parent.closest("script, style, textarea, svg, canvas, mark.preview-find-highlight")) return false;
+  return contentEl()?.contains(parent);
+}
+
+function collectPreviewTextNodes() {
+  const root = contentEl();
+  if (!root) return [];
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return isPreviewFindTextNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+
+  const textNodes = [];
+  let node = walker.nextNode();
+  while (node) {
+    textNodes.push(node);
+    node = walker.nextNode();
+  }
+  return textNodes;
+}
+
+function collectPreviewFindMatches(query) {
+  clearPreviewFindHighlights();
+
+  const normalizedQuery = normalizeFindQuery(query);
+  if (!normalizedQuery) return [];
+
+  const matches = [];
+  const textNodes = collectPreviewTextNodes();
+
+  textNodes.forEach((node) => {
+    const normalizedValue = normalizeFindQuery(node.nodeValue);
+    let offset = 0;
+
+    while (offset <= normalizedValue.length) {
+      const index = normalizedValue.indexOf(normalizedQuery, offset);
+      if (index === -1) break;
+      matches.push({ node, start: index, end: index + query.length });
+      offset = index + Math.max(1, normalizedQuery.length);
+    }
+  });
+
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const match = matches[index];
+    const range = document.createRange();
+    range.setStart(match.node, match.start);
+    range.setEnd(match.node, match.end);
+
+    const mark = document.createElement("mark");
+    mark.className = "preview-find-highlight";
+    mark.dataset.findMatchIndex = String(index);
+
+    try {
+      range.surroundContents(mark);
+      match.element = mark;
+      previewFindRestoreQueue.push(mark);
+    } catch (_) {
+      matches.splice(index, 1);
+    } finally {
+      range.detach();
+    }
+  }
+
+  return matches
+    .filter((match) => match.element?.isConnected)
+    .sort((a, b) => {
+      if (a.element === b.element) return 0;
+      const position = a.element.compareDocumentPosition(b.element);
+      return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
+}
+
+function findClosestMatchIndex(selectionStart = editorEl()?.selectionStart ?? 0) {
+  if (!findMatches.length) return -1;
+  const exactIndex = findMatches.findIndex((match) => selectionStart >= match.start && selectionStart <= match.end);
+  if (exactIndex !== -1) return exactIndex;
+  const nextIndex = findMatches.findIndex((match) => match.start >= selectionStart);
+  return nextIndex === -1 ? 0 : nextIndex;
+}
+
+function revealEditorFindMatch(match, { focusEditor = false } = {}) {
+  const editor = editorEl();
+  const tab = getActiveTab();
+  if (!editor || !tab || !match) return;
+
+  requestAnimationFrame(() => {
+    editor.setSelectionRange(match.start, match.end);
+    if (focusEditor) {
+      editor.focus({ preventScroll: true });
+    }
+    editor.scrollTop = getEditorLineScrollTop(editor, match.lineIndex);
+    tab.editorScrollY = editor.scrollTop;
+    syncLineNumberScroll();
+    updateCurrentEditorLineNumber(match.lineIndex);
+    updateBackToTopButton();
+  });
+}
+
+function revealPreviewFindMatch(match) {
+  const mark = match?.element;
+  if (!mark?.isConnected) return;
+
+  contentEl()?.querySelectorAll(".preview-find-highlight.active").forEach((element) => {
+    element.classList.remove("active");
+  });
+  mark.classList.add("active");
+
+  const container = viewMode === "split" ? contentEl() : readerContentEl();
+  if (!container) return;
+
+  requestAnimationFrame(() => {
+    const containerRect = container.getBoundingClientRect();
+    const markRect = mark.getBoundingClientRect();
+    const top = container.scrollTop + markRect.top - containerRect.top - 72;
+    container.scrollTo({
+      top: Math.max(0, top),
+      behavior: "smooth",
+    });
+    updateBackToTopButton();
+  });
+}
+
+function revealFindMatch(match, options = {}) {
+  if (findMatchMode === "preview") {
+    revealPreviewFindMatch(match);
+    return;
+  }
+
+  revealEditorFindMatch(match, options);
+}
+
+function rebuildFindMatches({ keepSelection = true } = {}) {
+  const query = getFindQuery();
+  findMatchMode = getActiveFindMode();
+
+  if (!getActiveTab() || !query) {
+    clearFindMatches();
+    setFindStatus();
+    return;
+  }
+
+  const editor = editorEl();
+  const selectionStart = editor?.selectionStart ?? 0;
+  const previousStart = activeFindMatchIndex >= 0 ? findMatches[activeFindMatchIndex]?.start : null;
+  if (findMatchMode !== "preview") {
+    clearPreviewFindHighlights();
+  } else {
+    clearEditorFindHighlights();
+  }
+  findMatches = findMatchMode === "preview"
+    ? collectPreviewFindMatches(query)
+    : collectEditorFindMatches(query);
+
+  if (!findMatches.length) {
+    activeFindMatchIndex = -1;
+    clearEditorFindHighlights();
+    setFindStatus();
+    return;
+  }
+
+  if (findMatchMode === "preview") {
+    activeFindMatchIndex =
+      keepSelection && activeFindMatchIndex >= 0
+        ? Math.min(activeFindMatchIndex, findMatches.length - 1)
+        : 0;
+  } else if (keepSelection && previousStart !== null) {
+    const sameOrNext = findMatches.findIndex((match) => match.start >= previousStart);
+    activeFindMatchIndex = sameOrNext === -1 ? 0 : sameOrNext;
+  } else {
+    activeFindMatchIndex = findClosestMatchIndex(selectionStart);
+  }
+
+  setFindStatus();
+  renderEditorFindHighlights();
+}
+
+function goToFindMatch(direction = 1) {
+  const query = getFindQuery();
+  if (!query) {
+    openFindBar();
+    return;
+  }
+
+  rebuildFindMatches({ keepSelection: activeFindMatchIndex >= 0 });
+  if (!findMatches.length) return;
+
+  activeFindMatchIndex =
+    activeFindMatchIndex === -1
+      ? 0
+      : (activeFindMatchIndex + direction + findMatches.length) % findMatches.length;
+  setFindStatus();
+  renderEditorFindHighlights();
+  revealFindMatch(findMatches[activeFindMatchIndex]);
+}
+
+function openFindBar() {
+  const bar = findBarEl();
+  const input = findInputEl();
+  if (!bar || !input) return;
+
+  bar.classList.remove("hidden");
+  rebuildFindMatches({ keepSelection: false });
+  requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
+}
+
+function closeFindBar({ focusEditor = true } = {}) {
+  findBarEl()?.classList.add("hidden");
+  clearPreviewFindHighlights();
+  clearEditorFindHighlights();
+  if (focusEditor && getActiveTab() && (viewMode === "edit" || viewMode === "split")) {
+    editorEl()?.focus();
+  }
+}
+
+function syncFindForActiveDocument() {
+  if (!getActiveTab()) {
+    clearFindMatches();
+    setFindStatus();
+    closeFindBar({ focusEditor: false });
+    return;
+  }
+
+  if (isFindOpen() || getFindQuery()) {
+    rebuildFindMatches({ keepSelection: false });
+  } else {
+    setFindStatus();
+  }
+}
+
+function pausePreviewFindHighlights() {
+  const shouldRestore = isFindOpen() && getFindQuery() && getActiveFindMode() === "preview";
+  clearPreviewFindHighlights();
+  return () => {
+    if (!shouldRestore) return;
+    rebuildFindMatches({ keepSelection: false });
+    if (findMatches.length) revealFindMatch(findMatches[activeFindMatchIndex]);
+  };
 }
 
 function scrollPreviewHeadingToId(targetId) {
@@ -998,6 +1496,7 @@ function syncEditorFromTab(tab) {
   if (editor.value !== tab.content) {
     editor.value = tab.content;
   }
+  scheduleLineNumberRender();
 }
 
 function getEditorScrollY() {
@@ -1006,7 +1505,10 @@ function getEditorScrollY() {
 
 function setEditorScrollY(value) {
   const editor = editorEl();
-  if (editor) editor.scrollTop = value;
+  if (editor) {
+    editor.scrollTop = value;
+    syncLineNumberScroll();
+  }
 }
 
 function applyEditorEdit(nextValue, selectionStart, selectionEnd = selectionStart) {
@@ -1019,6 +1521,8 @@ function applyEditorEdit(nextValue, selectionStart, selectionEnd = selectionStar
   editor.setSelectionRange(selectionStart, selectionEnd);
   handleEditorInput();
   editor.scrollTop = scrollTop;
+  syncLineNumberScroll();
+  updateCurrentEditorLineNumber();
 }
 
 function handleEditorKeyDown(event) {
@@ -1063,9 +1567,15 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
     requestAnimationFrame(() => {
       setReaderScrollY(previousReaderScrollY);
       setEditorScrollY(previousEditorScrollY);
+      renderEditorLineNumbers();
+      if (isFindOpen() || getFindQuery()) {
+        rebuildFindMatches({ keepSelection: false });
+        if (findMatches.length) revealFindMatch(findMatches[activeFindMatchIndex]);
+      }
       updateBackToTopButton();
     });
   }
+  scheduleLineNumberRender();
   updateBackToTopButton();
 }
 
@@ -1081,6 +1591,11 @@ function updateEditorControls() {
 
   if (saveButton) {
     saveButton.disabled = !tab || tab.saving || (!tab.isDraft && !tab.dirty);
+  }
+
+  const findButton = findToggleButton();
+  if (findButton) {
+    findButton.disabled = !hasDocument;
   }
 
   const status = editorStatusEl();
@@ -1235,6 +1750,10 @@ function handleEditorInput() {
 
   tab.dirty = tab.content !== tab.savedContent;
   scheduleActivePreviewRender();
+  scheduleLineNumberRender();
+  if (isFindOpen() || getFindQuery()) {
+    rebuildFindMatches();
+  }
 
   if (wasDirty !== tab.dirty || hadExternalContent !== (tab.externalContent !== null)) {
     renderTabBar();
@@ -1300,6 +1819,7 @@ function switchToTab(tabId) {
   applyTabTheme(tab);
   syncEditorFromTab(tab);
   renderMarkdown(tab.content);
+  syncFindForActiveDocument();
   setTitle(tab, { dirty: tab.dirty });
   renderTabBar();
   updateExportButton();
@@ -1309,6 +1829,7 @@ function switchToTab(tabId) {
   requestAnimationFrame(() => {
     setReaderScrollY(tab.scrollY || 0);
     setEditorScrollY(tab.editorScrollY || 0);
+    renderEditorLineNumbers();
     updateBackToTopButton();
   });
 }
@@ -1381,6 +1902,10 @@ function resetAllTabs() {
   nextDraftId = 1;
   cancelPendingPreviewRender();
   editorEl().value = "";
+  clearFindMatches();
+  setFindStatus();
+  closeFindBar({ focusEditor: false });
+  renderEditorLineNumbers();
   contentEl().innerHTML = "";
   documentWorkspaceEl().hidden = true;
   emptyEl().style.display = "";
@@ -2287,13 +2812,19 @@ async function handleExportDOCX() {
   });
   if (!filePath) return;
 
-  const blob = await exportDOCX(contentEl());
-  const buffer = await blob.arrayBuffer();
-  await writeExportFile(filePath, arrayBufferToBytes(buffer));
+  const restoreFindHighlights = pausePreviewFindHighlights();
+  try {
+    const blob = await exportDOCX(contentEl());
+    const buffer = await blob.arrayBuffer();
+    await writeExportFile(filePath, arrayBufferToBytes(buffer));
+  } finally {
+    restoreFindHighlights();
+  }
 }
 
 async function handlePrintPDF() {
   flushActivePreviewRender();
+  const restoreFindHighlights = pausePreviewFindHighlights();
   const markdown = contentEl();
   const pageBackground =
     getComputedStyle(markdown).backgroundColor ||
@@ -2332,6 +2863,7 @@ async function handlePrintPDF() {
 
   const cleanup = () => {
     printStyle.remove();
+    restoreFindHighlights();
   };
 
   window.addEventListener("afterprint", cleanup, { once: true });
@@ -2426,8 +2958,12 @@ function initEditingControls() {
   editor?.addEventListener("scroll", () => {
     const tab = getActiveTab();
     if (tab) tab.editorScrollY = getEditorScrollY();
+    syncLineNumberScroll();
     updateBackToTopButton();
   });
+  editor?.addEventListener("click", () => updateCurrentEditorLineNumber());
+  editor?.addEventListener("keyup", () => updateCurrentEditorLineNumber());
+  editor?.addEventListener("select", () => updateCurrentEditorLineNumber());
 
   saveMarkdownButton()?.addEventListener("click", () => {
     saveActiveTab();
@@ -2448,6 +2984,45 @@ function initEditingControls() {
   });
 
   updateEditorControls();
+}
+
+function initFindControls() {
+  const input = findInputEl();
+
+  findToggleButton()?.addEventListener("click", openFindBar);
+  findCloseButton()?.addEventListener("click", () => closeFindBar());
+  findNextButton()?.addEventListener("click", () => goToFindMatch(1));
+  findPreviousButton()?.addEventListener("click", () => goToFindMatch(-1));
+
+  input?.addEventListener("input", () => {
+    rebuildFindMatches({ keepSelection: false });
+    if (findMatches.length) {
+      revealFindMatch(findMatches[activeFindMatchIndex]);
+    }
+  });
+
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      goToFindMatch(e.shiftKey ? -1 : 1);
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeFindBar();
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const isFindShortcut = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f";
+    if (!isFindShortcut) return;
+    e.preventDefault();
+    if (!getActiveTab()) return;
+    openFindBar();
+  });
+
+  setFindStatus();
 }
 
 function buildThemeSelectOptions(select, selectedTheme) {
@@ -2710,6 +3285,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initUnsavedDialog();
   initBackToTopButton();
   initEditingControls();
+  initFindControls();
   initOutlineNavigation();
   initMarkdownAnchorNavigation();
   initWorkspaceNavigation();
@@ -2737,6 +3313,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
 
     if (e.target.closest("#view-mode-toggle, #save-md-btn, #theme-select, #settings-btn, #export-wrapper")) return;
+    if (e.target.closest("#find-bar, #find-toggle-btn")) return;
 
     getCurrentWindow().startDragging();
   });
