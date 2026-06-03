@@ -522,7 +522,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 #back-to-top-btn {
   position: absolute;
   right: 22px;
-  bottom: 22px;
+  bottom: 64px;
   z-index: 40;
   display: inline-flex;
   align-items: center;
@@ -548,6 +548,33 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 
 #back-to-top-btn:active {
   transform: translateY(1px);
+}
+
+#word-count-status {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  z-index: 35;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: calc(100% - 44px);
+  min-height: 28px;
+  padding: 0 10px;
+  overflow: hidden;
+  color: #51615b;
+  background: rgba(255, 255, 252, 0.9);
+  border: 1px solid rgba(59, 111, 101, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(52, 50, 44, 0.1);
+  font-size: 12px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  backdrop-filter: blur(12px);
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 #tab-bar {
@@ -1675,6 +1702,16 @@ body.is-resizing-sidebar #sidebar-resizer::after {
     display: none;
   }
 
+  #word-count-status {
+    right: 12px;
+    bottom: 12px;
+  }
+
+  #back-to-top-btn {
+    right: 12px;
+    bottom: 54px;
+  }
+
   #theme-select {
     width: 96px;
   }
@@ -1775,7 +1812,9 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   #side-panel,
   #tab-bar,
   #empty-state,
-  #editor-shell {
+  #editor-shell,
+  #word-count-status,
+  #back-to-top-btn {
     display: none !important;
   }
 

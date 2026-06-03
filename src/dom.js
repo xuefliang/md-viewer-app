@@ -19,4 +19,5 @@ export const readerContentEl = () => document.getElementById("reader-content");
 export const backToTopButton = () => document.getElementById("back-to-top-btn");
 export const saveMarkdownButton = () => document.getElementById("save-md-btn");
 export const editorStatusEl = () => document.getElementById("editor-status");
+export const wordCountStatusEl = () => document.getElementById("word-count-status");
 export const currentThemeId = () => document.body.getAttribute("data-theme") || "default";

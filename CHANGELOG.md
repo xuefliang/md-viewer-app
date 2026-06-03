@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.6 - 2026-06-03
+
+- Added a lower-right word count status for the active Markdown document.
+- Show selected text word counts when selecting text in the editor or preview.
+
 ## 0.3.5 - 2026-06-02
 
 - Added line numbers to the Markdown editor in edit and split views, including synchronized scrolling and current-line highlighting.

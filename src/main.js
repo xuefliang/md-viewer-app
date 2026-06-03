@@ -50,6 +50,7 @@ import {
   saveMarkdownButton,
   tabListEl,
   themeSelect,
+  wordCountStatusEl,
 } from "./dom.js";
 import { handleEditorKeyDown as handleMarkdownEditorKeyDown } from "./editor-behavior.js";
 import { copyImageToClipboard } from "./image-clipboard.js";
@@ -117,6 +118,8 @@ const VIEW_MODE_KEY = "md-viewer-view-mode";
 const SCREENSHOT_DEMO_ROOT = "/Users/demo/Documents/Markdown Library";
 const UPDATE_CHECK_DELAY_MS = 1200;
 const BACK_TO_TOP_THRESHOLD = 260;
+const WORD_COUNT_TOKEN_RE =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
 const SCREENSHOT_DEMO_FILES = [
   {
     path: `${SCREENSHOT_DEMO_ROOT}/README.md`,
@@ -251,6 +254,7 @@ function refreshLocalizedUI() {
   renderWorkspaceFiles();
   renderDocumentOutline();
   updateEditorControls();
+  updateWordCountStatus();
   updateWorkspaceContextMenuState(contextWorkspaceTarget);
 }
 
@@ -283,6 +287,7 @@ async function renderMarkdown(raw, filePath = getActiveTab()?.path) {
         clearPreviewFindHighlights();
       }
       updateBackToTopButton();
+      updateWordCountStatus();
     },
   });
 }
@@ -320,6 +325,67 @@ function getRevealActionLabel() {
 
 function getActiveTab() {
   return tabs.find((t) => t.id === activeTabId) || null;
+}
+
+function countTextUnits(text = "") {
+  WORD_COUNT_TOKEN_RE.lastIndex = 0;
+  return Array.from(String(text).matchAll(WORD_COUNT_TOKEN_RE)).length;
+}
+
+function formatWordCountNumber(count) {
+  return new Intl.NumberFormat(getLocale()).format(count);
+}
+
+function nodeIsInside(element, node) {
+  if (!element || !node) return false;
+  return node === element || element.contains(node.nodeType === Node.TEXT_NODE ? node.parentElement : node);
+}
+
+function getEditorSelectionText() {
+  const editor = editorEl();
+  if (!editor || !["edit", "split"].includes(viewMode)) return "";
+
+  const selectionStart = Math.min(editor.selectionStart, editor.selectionEnd);
+  const selectionEnd = Math.max(editor.selectionStart, editor.selectionEnd);
+  if (selectionStart === selectionEnd) return "";
+
+  return editor.value.slice(selectionStart, selectionEnd);
+}
+
+function getPreviewSelectionText() {
+  const selection = window.getSelection?.();
+  if (!selection || selection.isCollapsed) return "";
+
+  const content = contentEl();
+  if (!nodeIsInside(content, selection.anchorNode) && !nodeIsInside(content, selection.focusNode)) {
+    return "";
+  }
+
+  return selection.toString();
+}
+
+function getSelectedDocumentText() {
+  return getEditorSelectionText() || getPreviewSelectionText();
+}
+
+function updateWordCountStatus() {
+  const status = wordCountStatusEl();
+  if (!status) return;
+
+  const tab = getActiveTab();
+  if (!tab) {
+    status.textContent = "";
+    status.classList.add("hidden");
+    return;
+  }
+
+  const selectedText = getSelectedDocumentText();
+  const hasSelection = selectedText.length > 0;
+  const count = countTextUnits(hasSelection ? selectedText : tab.content);
+  const key = hasSelection ? "wordCount.selected" : "wordCount.total";
+
+  status.textContent = t(key, { count: formatWordCountNumber(count) });
+  status.classList.remove("hidden");
 }
 
 function getReaderScrollY() {
@@ -1577,6 +1643,7 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
   }
   scheduleLineNumberRender();
   updateBackToTopButton();
+  updateWordCountStatus();
 }
 
 function updateEditorControls() {
@@ -1657,6 +1724,7 @@ function replaceTabContentFromDisk(tab, rawContent) {
     renderMarkdown(tab.content);
     updateSidePanel();
     updateEditorControls();
+    updateWordCountStatus();
   }
 }
 
@@ -1759,6 +1827,7 @@ function handleEditorInput() {
     renderTabBar();
   }
   updateEditorControls();
+  updateWordCountStatus();
 }
 
 async function handleExternalFileChange(path, rawContent) {
@@ -1825,12 +1894,14 @@ function switchToTab(tabId) {
   updateExportButton();
   updateSidePanel();
   updateEditorControls();
+  updateWordCountStatus();
 
   requestAnimationFrame(() => {
     setReaderScrollY(tab.scrollY || 0);
     setEditorScrollY(tab.editorScrollY || 0);
     renderEditorLineNumbers();
     updateBackToTopButton();
+    updateWordCountStatus();
   });
 }
 
@@ -1915,6 +1986,7 @@ function resetAllTabs() {
   updateSidePanel();
   updateEditorControls();
   updateBackToTopButton();
+  updateWordCountStatus();
 }
 
 function resolveUnsavedDecision(decision) {
@@ -2964,6 +3036,11 @@ function initEditingControls() {
   editor?.addEventListener("click", () => updateCurrentEditorLineNumber());
   editor?.addEventListener("keyup", () => updateCurrentEditorLineNumber());
   editor?.addEventListener("select", () => updateCurrentEditorLineNumber());
+  editor?.addEventListener("select", updateWordCountStatus);
+  editor?.addEventListener("mouseup", updateWordCountStatus);
+  editor?.addEventListener("keyup", updateWordCountStatus);
+
+  document.addEventListener("selectionchange", updateWordCountStatus);
 
   saveMarkdownButton()?.addEventListener("click", () => {
     saveActiveTab();
