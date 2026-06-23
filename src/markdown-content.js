@@ -1,5 +1,5 @@
 import markdownit from "markdown-it";
-import hljs from "highlight.js";
+import hljs from "highlight.js";import { applyMathToHTML } from "./math-renderer.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentThemeDefinition } from "./theme-engine.js";
 import { t } from "./i18n.js";
@@ -160,7 +160,7 @@ export async function renderMarkdown(raw, {
   workspaceRoot = null,
   afterRender,
 } = {}) {
-  const html = md.render(raw);
+  const html = applyMathToHTML(md.render(raw));
   contentEl().innerHTML = html;
   await rewriteMarkdownImageSources(filePath, { invoke, isTauriRuntime, workspaceRoot });
   await renderMermaidDiagrams();
