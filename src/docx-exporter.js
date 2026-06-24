@@ -33,6 +33,12 @@ function extractLatexSource(el) {
   return el.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() || '';
 }
 
+function cssColorToHex(cssColor) {
+  const m = String(cssColor).match(/\d+/g);
+  if (!m || m.length < 3) return '#333333';
+  return '#' + m.slice(0, 3).map(n => parseInt(n).toString(16).padStart(2, '0')).join('');
+}
+
 function mermaidSvgToData(mermaidEl) {
   const svgEl = mermaidEl.querySelector('svg');
   if (!svgEl) return null;
@@ -54,9 +60,42 @@ function mermaidSvgToData(mermaidEl) {
   clone.setAttribute('height', svgH);
   if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
 
+  // Word does not render <foreignObject>; replace with native SVG <text> so labels are visible
+  const origFos = Array.from(svgEl.querySelectorAll('foreignObject'));
+  const cloneFos = Array.from(clone.querySelectorAll('foreignObject'));
+  origFos.forEach((origFo, i) => {
+    const cloneFo = cloneFos[i];
+    if (!cloneFo) return;
+
+    const text = origFo.textContent?.trim() || '';
+    if (!text) { cloneFo.parentNode?.removeChild(cloneFo); return; }
+
+    const innerEl = origFo.querySelector('span, div') || origFo;
+    const cs = window.getComputedStyle(innerEl);
+    const fontSize = Math.round(parseFloat(cs.fontSize) || 14);
+    const fill = cssColorToHex(cs.color || 'rgb(51,51,51)');
+    const fontFamily = cs.fontFamily || 'sans-serif';
+
+    const w = parseFloat(cloneFo.getAttribute('width') || '0');
+    const h = parseFloat(cloneFo.getAttribute('height') || '0');
+    const cx = parseFloat(cloneFo.getAttribute('x') || '0') + w / 2;
+    const cy = parseFloat(cloneFo.getAttribute('y') || '0') + h / 2;
+
+    const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    textEl.setAttribute('x', String(cx));
+    textEl.setAttribute('y', String(cy));
+    textEl.setAttribute('text-anchor', 'middle');
+    textEl.setAttribute('dominant-baseline', 'central');
+    textEl.setAttribute('font-size', String(fontSize));
+    textEl.setAttribute('fill', fill);
+    textEl.setAttribute('font-family', fontFamily);
+    textEl.textContent = text;
+
+    cloneFo.parentNode?.replaceChild(textEl, cloneFo);
+  });
+
   const svgStr = new XMLSerializer().serializeToString(clone);
   const data = new TextEncoder().encode(svgStr);
-
   return { data, width: svgW, height: svgH };
 }
 
