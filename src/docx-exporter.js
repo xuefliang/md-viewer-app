@@ -492,20 +492,20 @@ function processBlockElement(el, themeStyles, listLevel = -1, imageMap = null) {
 
   if (tag === 'DIV' && el.classList.contains('math-block')) {
     const formula = extractLatexSource(el);
-    results.push(
-      new Paragraph({
-        children: formula
-          ? [new TextRun({
-              text: `$$${formula}$$`,
-              font: themeStyles.code.font,
-              size: themeStyles.code.size,
-              color: themeStyles.code.foreground,
-            })]
-          : [],
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 120, after: 120 },
-      }),
-    );
+    if (formula) {
+      results.push(
+        new Paragraph({
+          children: [new TextRun({
+            text: `$$${formula}$$`,
+            font: themeStyles.code.font,
+            size: themeStyles.code.size,
+            color: themeStyles.code.foreground,
+          })],
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 120, after: 120 },
+        }),
+      );
+    }
     return results;
   }
 
@@ -530,7 +530,7 @@ function processBlockElement(el, themeStyles, listLevel = -1, imageMap = null) {
         }),
       );
     } else {
-      const source = el.querySelector('.mermaid-source code')?.textContent?.trim() || '';
+      const source = el.dataset?.mermaidSource || el.querySelector('.mermaid-source code')?.textContent?.trim() || '';
       if (source) {
         results.push(
           new Paragraph({

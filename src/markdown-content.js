@@ -116,6 +116,7 @@ async function renderMermaidDiagrams() {
     try {
       const { svg, bindFunctions } = await mermaid.render(renderId, source);
       if (!diagram.isConnected) return;
+      diagram.dataset.mermaidSource = source;
       diagram.innerHTML = svg;
       diagram.classList.add("is-rendered");
       bindFunctions?.(diagram);
