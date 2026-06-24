@@ -19,6 +19,16 @@ import {
 import { getCurrentThemeDefinition } from "./theme-engine.js";
 import { getTypographyValuesForScope } from "./theme-settings.js";
 
+// Minimal 1×1 white PNG — used as fallback for SVG ImageRun (docx requires it)
+const MINIMAL_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI6QAAAABJRU5ErkJggg==';
+function b64ToUint8Array(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+const MINIMAL_PNG = b64ToUint8Array(MINIMAL_PNG_B64);
+
 function extractLatexSource(el) {
   return el.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() || '';
 }
@@ -493,6 +503,10 @@ function processBlockElement(el, themeStyles, listLevel = -1, imageMap = null) {
               data: imgData.data,
               transformation: { width: w, height: h },
               type: 'svg',
+              fallback: {
+                type: 'png',
+                data: MINIMAL_PNG,
+              },
             }),
           ],
           alignment: AlignmentType.CENTER,
