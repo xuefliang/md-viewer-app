@@ -23,7 +23,7 @@ function extractLatexSource(el) {
   return el.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() || '';
 }
 
-async function mermaidSvgToPng(mermaidEl) {
+function mermaidSvgToData(mermaidEl) {
   const svgEl = mermaidEl.querySelector('svg');
   if (!svgEl) return null;
 
@@ -45,39 +45,9 @@ async function mermaidSvgToPng(mermaidEl) {
   if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
 
   const svgStr = new XMLSerializer().serializeToString(clone);
-  const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
+  const data = new TextEncoder().encode(svgStr);
 
-  try {
-    const img = await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = reject;
-      image.src = url;
-    });
-
-    const scale = 2;
-    const canvas = document.createElement('canvas');
-    canvas.width = svgW * scale;
-    canvas.height = svgH * scale;
-    const ctx = canvas.getContext('2d');
-    ctx.scale(scale, scale);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, svgW, svgH);
-    ctx.drawImage(img, 0, 0, svgW, svgH);
-
-    return await new Promise((resolve) => {
-      canvas.toBlob(async (pngBlob) => {
-        if (!pngBlob) { resolve(null); return; }
-        const buffer = await pngBlob.arrayBuffer();
-        resolve({ data: new Uint8Array(buffer), width: svgW, height: svgH });
-      }, 'image/png');
-    });
-  } catch {
-    return null;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  return { data, width: svgW, height: svgH };
 }
 
 const HEADING_MAP = {
@@ -522,7 +492,7 @@ function processBlockElement(el, themeStyles, listLevel = -1, imageMap = null) {
             new ImageRun({
               data: imgData.data,
               transformation: { width: w, height: h },
-              type: 'png',
+              type: 'svg',
             }),
           ],
           alignment: AlignmentType.CENTER,
@@ -866,7 +836,7 @@ export async function exportDOCX(container) {
 
   const imageMap = new WeakMap();
   for (const mermaidEl of container.querySelectorAll('.mermaid-diagram.is-rendered')) {
-    const imgData = await mermaidSvgToPng(mermaidEl);
+    const imgData = mermaidSvgToData(mermaidEl);
     if (imgData) imageMap.set(mermaidEl, imgData);
   }
 
