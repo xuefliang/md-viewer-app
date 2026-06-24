@@ -18,6 +18,10 @@ import {
 import { getCurrentThemeDefinition } from "./theme-engine.js";
 import { getTypographyValuesForScope } from "./theme-settings.js";
 
+function extractLatexSource(el) {
+  return el.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() || '';
+}
+
 const HEADING_MAP = {
   H1: HeadingLevel.HEADING_1,
   H2: HeadingLevel.HEADING_2,
@@ -403,6 +407,19 @@ function processInlineChildren(el, themeStyles, parentStyle = {}) {
       runs.push(new TextRun({ break: 1 }));
     } else if (tag === "DEL" || tag === "S") {
       runs.push(...processInlineChildren(node, themeStyles, { ...parentStyle, strike: true }));
+    } else if (tag === 'SPAN' && node.classList?.contains('katex')) {
+      const formula = extractLatexSource(node);
+      if (formula) {
+        runs.push(
+          new TextRun({
+            text: `$${formula}$`,
+            font: themeStyles.code.font,
+            size: Math.max(1, Math.round((parentStyle.size || themeStyles.default.run.size) * 0.92)),
+            color: parentStyle.color || themeStyles.default.run.color,
+            shading: { type: ShadingType.CLEAR, fill: themeStyles.code.background },
+          }),
+        );
+      }
     } else {
       runs.push(...processInlineChildren(node, themeStyles, parentStyle));
     }
@@ -414,6 +431,25 @@ function processInlineChildren(el, themeStyles, parentStyle = {}) {
 function processBlockElement(el, themeStyles, listLevel = -1) {
   const tag = el.tagName;
   const results = [];
+
+  if (tag === 'DIV' && el.classList.contains('math-block')) {
+    const formula = extractLatexSource(el);
+    results.push(
+      new Paragraph({
+        children: formula
+          ? [new TextRun({
+              text: `$$${formula}$$`,
+              font: themeStyles.code.font,
+              size: themeStyles.code.size,
+              color: themeStyles.code.foreground,
+            })]
+          : [],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 120, after: 120 },
+      }),
+    );
+    return results;
+  }
 
   if (HEADING_MAP[tag]) {
     const heading = themeStyles.headings[tag];
