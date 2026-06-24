@@ -1,5 +1,6 @@
 import {
   Document,
+  ImageRun,
   Packer,
   Paragraph,
   TextRun,
@@ -20,6 +21,63 @@ import { getTypographyValuesForScope } from "./theme-settings.js";
 
 function extractLatexSource(el) {
   return el.querySelector('annotation[encoding="application/x-tex"]')?.textContent?.trim() || '';
+}
+
+async function mermaidSvgToPng(mermaidEl) {
+  const svgEl = mermaidEl.querySelector('svg');
+  if (!svgEl) return null;
+
+  const viewBox = svgEl.getAttribute('viewBox');
+  let svgW, svgH;
+  if (viewBox) {
+    const parts = viewBox.trim().split(/\s+/).map(Number);
+    svgW = parts[2] || 800;
+    svgH = parts[3] || 400;
+  } else {
+    const rect = svgEl.getBoundingClientRect();
+    svgW = Math.ceil(rect.width) || 800;
+    svgH = Math.ceil(rect.height) || 400;
+  }
+
+  const clone = svgEl.cloneNode(true);
+  clone.setAttribute('width', svgW);
+  clone.setAttribute('height', svgH);
+  if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+  const svgStr = new XMLSerializer().serializeToString(clone);
+  const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = url;
+    });
+
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = svgW * scale;
+    canvas.height = svgH * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, svgW, svgH);
+    ctx.drawImage(img, 0, 0, svgW, svgH);
+
+    return await new Promise((resolve) => {
+      canvas.toBlob(async (pngBlob) => {
+        if (!pngBlob) { resolve(null); return; }
+        const buffer = await pngBlob.arrayBuffer();
+        resolve({ data: new Uint8Array(buffer), width: svgW, height: svgH });
+      }, 'image/png');
+    });
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 const HEADING_MAP = {
@@ -428,7 +486,7 @@ function processInlineChildren(el, themeStyles, parentStyle = {}) {
   return runs;
 }
 
-function processBlockElement(el, themeStyles, listLevel = -1) {
+function processBlockElement(el, themeStyles, listLevel = -1, imageMap = null) {
   const tag = el.tagName;
   const results = [];
 
@@ -448,6 +506,46 @@ function processBlockElement(el, themeStyles, listLevel = -1) {
         spacing: { before: 120, after: 120 },
       }),
     );
+    return results;
+  }
+
+  if (tag === 'DIV' && el.classList.contains('mermaid-diagram')) {
+    const imgData = imageMap?.get(el);
+    if (imgData) {
+      const MAX_WIDTH = 550;
+      const scale = Math.min(1, MAX_WIDTH / imgData.width);
+      const w = Math.round(imgData.width * scale);
+      const h = Math.round(imgData.height * scale);
+      results.push(
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: imgData.data,
+              transformation: { width: w, height: h },
+              type: 'png',
+            }),
+          ],
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 120, after: 120 },
+        }),
+      );
+    } else {
+      const source = el.querySelector('.mermaid-source code')?.textContent?.trim() || '';
+      if (source) {
+        results.push(
+          new Paragraph({
+            children: makeTextRuns(source, {
+              font: themeStyles.code.font,
+              size: themeStyles.code.size,
+              color: themeStyles.code.foreground,
+            }),
+            style: 'CodeBlock',
+            wordWrap: true,
+            shading: { type: ShadingType.CLEAR, fill: themeStyles.code.background },
+          }),
+        );
+      }
+    }
     return results;
   }
 
@@ -493,7 +591,7 @@ function processBlockElement(el, themeStyles, listLevel = -1) {
       }),
     );
   } else if (tag === "BLOCKQUOTE") {
-    results.push(...processBlockquote(el, themeStyles));
+    results.push(...processBlockquote(el, themeStyles, imageMap));
   } else if (tag === "TABLE") {
     results.push(processTable(el, themeStyles));
   } else if (tag === "HR") {
@@ -508,7 +606,7 @@ function processBlockElement(el, themeStyles, listLevel = -1) {
     );
   } else if (tag === "DIV" || tag === "SECTION" || tag === "ARTICLE") {
     for (const child of el.children) {
-      results.push(...processBlockElement(child, themeStyles, listLevel));
+      results.push(...processBlockElement(child, themeStyles, listLevel, imageMap));
     }
   } else {
     results.push(
@@ -522,7 +620,7 @@ function processBlockElement(el, themeStyles, listLevel = -1) {
   return results;
 }
 
-function processBlockquote(el, themeStyles) {
+function processBlockquote(el, themeStyles, imageMap = null) {
   const results = [];
   const common = {
     style: "BlockquoteText",
@@ -566,7 +664,7 @@ function processBlockquote(el, themeStyles) {
         }),
       );
     } else {
-      const nested = processBlockElement(child, themeStyles);
+      const nested = processBlockElement(child, themeStyles, -1, imageMap);
       results.push(...nested);
     }
   }
@@ -765,10 +863,16 @@ function numberingLevel(level, format, text, leftInches) {
 
 export async function exportDOCX(container) {
   const themeStyles = buildThemeStyles();
-  const elements = [];
 
+  const imageMap = new WeakMap();
+  for (const mermaidEl of container.querySelectorAll('.mermaid-diagram.is-rendered')) {
+    const imgData = await mermaidSvgToPng(mermaidEl);
+    if (imgData) imageMap.set(mermaidEl, imgData);
+  }
+
+  const elements = [];
   for (const child of container.children) {
-    elements.push(...processBlockElement(child, themeStyles));
+    elements.push(...processBlockElement(child, themeStyles, -1, imageMap));
   }
 
   const doc = new Document({
