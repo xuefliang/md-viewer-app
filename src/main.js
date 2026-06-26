@@ -497,6 +497,53 @@ function getEditorLineCount(value) {
   return value.split("\n").length;
 }
 
+function getLineHeightMeasurer(editor) {
+  let measurer = document.getElementById("editor-line-height-measurer");
+  if (!measurer) {
+    measurer = document.createElement("pre");
+    measurer.id = "editor-line-height-measurer";
+    measurer.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      visibility: hidden;
+      pointer-events: none;
+      z-index: -1;
+      overflow: hidden;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+      word-break: break-word;
+      box-sizing: border-box;
+      border: 0;
+      margin: 0;
+    `;
+    document.body.appendChild(measurer);
+  }
+
+  const styles = window.getComputedStyle(editor);
+  measurer.style.fontFamily = styles.fontFamily;
+  measurer.style.fontSize = styles.fontSize;
+  measurer.style.fontWeight = styles.fontWeight;
+  measurer.style.fontStyle = styles.fontStyle;
+  measurer.style.lineHeight = styles.lineHeight;
+  measurer.style.letterSpacing = styles.letterSpacing;
+  measurer.style.wordSpacing = styles.wordSpacing;
+  measurer.style.textTransform = styles.textTransform;
+  measurer.style.paddingLeft = styles.paddingLeft;
+  measurer.style.paddingRight = styles.paddingRight;
+  measurer.style.width = `${Math.max(0, editor.clientWidth - Number.parseFloat(styles.paddingLeft || 0) - Number.parseFloat(styles.paddingRight || 0))}px`;
+  return measurer;
+}
+
+function measureWrappedLineHeights(editor) {
+  const measurer = getLineHeightMeasurer(editor);
+  const lines = editor.value.split("\n");
+  return lines.map((line) => {
+    measurer.textContent = line || " ";
+    return measurer.offsetHeight;
+  });
+}
+
 function syncLineNumberScroll() {
   const editor = editorEl();
   const lineNumbers = editorLineNumbersEl();
@@ -527,30 +574,43 @@ function renderEditorLineNumbers() {
 
   const lineCount = getEditorLineCount(editor.value);
   const { lineHeight, paddingTop, paddingBottom } = getEditorLineMetrics(editor);
+  const wrappedHeights = measureWrappedLineHeights(editor);
+  const nextHeights = wrappedHeights.join(",");
   const currentCount = Number.parseInt(lineNumbers.dataset.lineCount || "0", 10);
   const currentLineHeight = Number.parseFloat(lineNumbers.dataset.lineHeight || "0");
   const currentPaddingTop = Number.parseFloat(lineNumbers.dataset.paddingTop || "0");
   const currentPaddingBottom = Number.parseFloat(lineNumbers.dataset.paddingBottom || "0");
+  const currentWidth = Number.parseFloat(lineNumbers.dataset.editorWidth || "0");
+  const currentHeights = lineNumbers.dataset.wrappedHeights;
 
   if (
     currentCount !== lineCount ||
     Math.abs(currentLineHeight - lineHeight) > 0.1 ||
     Math.abs(currentPaddingTop - paddingTop) > 0.1 ||
-    Math.abs(currentPaddingBottom - paddingBottom) > 0.1
+    Math.abs(currentPaddingBottom - paddingBottom) > 0.1 ||
+    Math.abs(currentWidth - editor.clientWidth) > 0.1
   ) {
     const widthDigits = String(lineCount).length;
     lineNumbers.dataset.lineCount = String(lineCount);
     lineNumbers.dataset.lineHeight = String(lineHeight);
     lineNumbers.dataset.paddingTop = String(paddingTop);
     lineNumbers.dataset.paddingBottom = String(paddingBottom);
+    lineNumbers.dataset.editorWidth = String(editor.clientWidth);
+    lineNumbers.dataset.wrappedHeights = nextHeights;
     lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, index) => (
-      `<span data-line="${index}" style="height:${lineHeight}px">${index + 1}</span>`
+      `<span data-line="${index}" style="height:${wrappedHeights[index]}px">${index + 1}</span>`
     )).join("");
     lineNumbers.style.lineHeight = `${lineHeight}px`;
     lineNumbers.style.paddingTop = `${paddingTop}px`;
     lineNumbers.style.paddingBottom = `${paddingBottom}px`;
     documentWorkspaceEl()?.style.setProperty("--editor-line-number-width", `${Math.max(48, widthDigits * 9 + 30)}px`);
     lineNumbers.dataset.activeLine = "-1";
+  } else if (currentHeights !== nextHeights) {
+    lineNumbers.dataset.wrappedHeights = nextHeights;
+    const spans = lineNumbers.querySelectorAll("span[data-line]");
+    spans.forEach((span, index) => {
+      span.style.height = `${wrappedHeights[index]}px`;
+    });
   }
 
   syncLineNumberScroll();
@@ -3039,6 +3099,13 @@ function initEditingControls() {
   editor?.addEventListener("select", updateWordCountStatus);
   editor?.addEventListener("mouseup", updateWordCountStatus);
   editor?.addEventListener("keyup", updateWordCountStatus);
+
+  if (editor) {
+    const editorResizeObserver = new ResizeObserver(() => {
+      scheduleLineNumberRender();
+    });
+    editorResizeObserver.observe(editor);
+  }
 
   document.addEventListener("selectionchange", updateWordCountStatus);
 

@@ -1083,9 +1083,9 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 14px;
   line-height: 1.65;
-  overflow-wrap: normal;
+  overflow-wrap: break-word;
   pointer-events: none;
-  white-space: pre;
+  white-space: pre-wrap;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -1120,8 +1120,8 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 14px;
   line-height: 1.65;
-  overflow-wrap: normal;
-  white-space: pre;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
   -webkit-user-select: text;
   user-select: text;
 }
