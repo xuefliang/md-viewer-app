@@ -1,6 +1,7 @@
 import { clampSize } from "./path-utils.js";
 
 const SIDEBAR_WIDTH_KEY = "md-viewer-sidebar-width-v2";
+const SIDEBAR_COLLAPSED_KEY = "md-viewer-sidebar-collapsed";
 const OUTLINE_HEIGHT_KEY = "md-viewer-outline-height";
 const DEFAULT_SIDEBAR_WIDTH = 288;
 const SIDEBAR_MIN_WIDTH = 248;
@@ -9,6 +10,8 @@ const READER_MIN_WIDTH = 420;
 const WORKSPACE_MIN_HEIGHT = 132;
 const OUTLINE_MIN_HEIGHT = 96;
 const RESIZE_KEYBOARD_STEP = 18;
+
+let lastExpandedWidth = DEFAULT_SIDEBAR_WIDTH;
 
 function getSidebarWidthBounds() {
   const maxWidth = Math.max(
@@ -85,16 +88,65 @@ export function applyDefaultSidebarWidth() {
   shell?.style.setProperty("--side-panel-width", `${DEFAULT_SIDEBAR_WIDTH}px`);
 }
 
+function updateSidebarCollapseUI(collapsed) {
+  const shell = document.getElementById("app-shell");
+  const sidePanel = document.getElementById("side-panel");
+  const collapseBtn = document.getElementById("sidebar-collapse-btn");
+  const expandBtn = document.getElementById("sidebar-expand-btn");
+
+  shell?.classList.toggle("sidebar-collapsed", collapsed);
+  sidePanel?.setAttribute("aria-hidden", String(collapsed));
+  collapseBtn?.setAttribute("aria-pressed", String(collapsed));
+  expandBtn?.setAttribute("aria-pressed", String(!collapsed));
+  if (expandBtn) expandBtn.hidden = !collapsed;
+}
+
+export function setSidebarCollapsed(collapsed, { persist = true } = {}) {
+  const shell = document.getElementById("app-shell");
+  if (!shell) return;
+
+  updateSidebarCollapseUI(collapsed);
+
+  if (collapsed) {
+    const currentWidth = shell.getBoundingClientRect().width > 0
+      ? Number.parseFloat(getComputedStyle(shell).getPropertyValue("--side-panel-width"))
+      : lastExpandedWidth;
+    if (Number.isFinite(currentWidth) && currentWidth > 0) {
+      lastExpandedWidth = currentWidth;
+    }
+    shell.style.setProperty("--side-panel-width", "0px");
+  } else {
+    const savedWidth = Number.parseFloat(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    const targetWidth = Number.isFinite(savedWidth) ? savedWidth : lastExpandedWidth;
+    setSidebarWidth(targetWidth, { persist: false });
+  }
+
+  if (persist) {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+  }
+}
+
 export function initResizablePanels() {
   const sidebarResizer = document.getElementById("sidebar-resizer");
   const outlineResizer = document.getElementById("outline-resizer");
+  const collapseBtn = document.getElementById("sidebar-collapse-btn");
+  const expandBtn = document.getElementById("sidebar-expand-btn");
 
   const savedSidebarWidth = Number.parseFloat(localStorage.getItem(SIDEBAR_WIDTH_KEY));
   if (Number.isFinite(savedSidebarWidth)) {
+    lastExpandedWidth = savedSidebarWidth;
     setSidebarWidth(savedSidebarWidth, { persist: false });
   } else {
     setSidebarWidth(DEFAULT_SIDEBAR_WIDTH, { persist: false });
   }
+
+  const savedCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  if (savedCollapsed) {
+    setSidebarCollapsed(true, { persist: false });
+  }
+
+  collapseBtn?.addEventListener("click", () => setSidebarCollapsed(true));
+  expandBtn?.addEventListener("click", () => setSidebarCollapsed(false));
 
   requestAnimationFrame(() => {
     const savedOutlineHeight = Number.parseFloat(localStorage.getItem(OUTLINE_HEIGHT_KEY));

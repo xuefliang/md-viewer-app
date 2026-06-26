@@ -10,10 +10,41 @@
   </head>
   <body data-theme="default">
     <div id="app-shell">
+      <button
+        id="sidebar-expand-btn"
+        type="button"
+        class="sidebar-expand-btn"
+        title="展开侧边栏"
+        aria-label="展开侧边栏"
+        aria-pressed="false"
+        hidden
+        data-i18n-title="sidebar.expand"
+        data-i18n-aria-label="sidebar.expand"
+      >
+        <svg class="sidebar-expand-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="13 17 18 12 13 7"></polyline>
+          <polyline points="6 17 11 12 6 7"></polyline>
+        </svg>
+      </button>
       <aside id="side-panel" aria-label="文档信息" data-i18n-aria-label="panel.aria">
         <div id="side-panel-drag-region" data-tauri-drag-region></div>
         <div class="panel-header" data-tauri-drag-region>
           <h1 data-tauri-drag-region data-i18n="panel.title">资源管理器</h1>
+          <button
+            id="sidebar-collapse-btn"
+            type="button"
+            class="sidebar-collapse-btn"
+            title="折叠侧边栏"
+            aria-label="折叠侧边栏"
+            aria-pressed="false"
+            data-i18n-title="sidebar.collapse"
+            data-i18n-aria-label="sidebar.collapse"
+          >
+            <svg class="sidebar-collapse-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="11 17 6 12 11 7"></polyline>
+              <polyline points="18 17 13 12 18 7"></polyline>
+            </svg>
+          </button>
         </div>
         <section id="workspace-section" aria-label="Markdown 文件" data-i18n-aria-label="workspace.aria">
           <div class="workspace-header">

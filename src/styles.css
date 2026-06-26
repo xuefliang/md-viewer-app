@@ -71,6 +71,7 @@ body.is-resizing-outline * {
 
 #app-shell {
   --side-panel-width: 288px;
+  position: relative;
   display: grid;
   grid-template-columns: var(--side-panel-width) minmax(0, 1fr);
   width: 100%;
@@ -79,6 +80,7 @@ body.is-resizing-outline * {
   background: var(--app-page);
   -webkit-user-select: none;
   user-select: none;
+  transition: grid-template-columns 200ms ease;
 }
 
 #side-panel {
@@ -92,6 +94,18 @@ body.is-resizing-outline * {
   overflow: hidden;
   background: var(--app-panel);
   border-right: 1px solid #ddddd6;
+  transition: opacity 180ms ease, padding 180ms ease, border-width 180ms ease;
+}
+
+#app-shell.sidebar-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+
+#app-shell.sidebar-collapsed #side-panel {
+  opacity: 0;
+  padding: 0;
+  border-right-width: 0;
+  pointer-events: none;
 }
 
 #side-panel-drag-region {
@@ -119,6 +133,60 @@ body.is-resizing-outline * {
   font-size: 13px;
   font-weight: 680;
   letter-spacing: 0;
+}
+
+.sidebar-collapse-btn,
+.sidebar-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--app-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.sidebar-collapse-btn:hover,
+.sidebar-expand-btn:hover {
+  color: var(--app-accent);
+  background: rgba(59, 111, 101, 0.08);
+  border-color: rgba(59, 111, 101, 0.12);
+}
+
+.sidebar-collapse-btn:focus-visible,
+.sidebar-expand-btn:focus-visible {
+  color: var(--app-accent);
+  outline: 2px solid rgba(59, 111, 101, 0.35);
+  outline-offset: 1px;
+}
+
+.sidebar-collapse-icon,
+.sidebar-expand-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.sidebar-expand-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--app-panel);
+  border-color: var(--app-line-strong);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: opacity 180ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+#app-shell.sidebar-collapsed .sidebar-expand-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 #workspace-section {
@@ -1680,7 +1748,12 @@ body.is-resizing-sidebar #sidebar-resizer::after {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #side-panel {
+  #app-shell.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #side-panel,
+  .sidebar-expand-btn {
     display: none;
   }
 
