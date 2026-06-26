@@ -32,6 +32,9 @@ importers:
       markdown-it:
         specifier: ^14.1.1
         version: 14.1.1
+      mathml2omml:
+        specifier: ^0.5.0
+        version: 0.5.0
       mermaid:
         specifier: ^11.15.0
         version: 11.15.0
@@ -746,6 +749,9 @@ packages:
     resolution: {integrity: sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA==}
     engines: {node: '>= 20'}
     hasBin: true
+
+  mathml2omml@0.5.0:
+    resolution: {integrity: sha512-4eLs37a+TH+CL/M5XZZrlc75SNRJNPiZzIaeSSvH0UFCRaCdSYRHWvrlA7MUbeQks/z4sVhfg+GlcZhVVUHzqg==}
 
   mdurl@2.0.0:
     resolution: {integrity: sha512-Lf+9+2r+Tdp5wXDXC4PcIBjTDtq4UKjCPMQhKIuzpJNW0b96kVqSwW0bT7FhRSfmAiFYgP+SCRvdrDozfh0U5w==}
@@ -1577,6 +1583,8 @@ snapshots:
       uc.micro: 2.1.0
 
   marked@16.4.2: {}
+
+  mathml2omml@0.5.0: {}
 
   mdurl@2.0.0: {}
 
