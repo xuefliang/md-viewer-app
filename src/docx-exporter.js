@@ -18,6 +18,7 @@ import {
 } from "docx";
 import { getCurrentThemeDefinition } from "./theme-engine.js";
 import { getTypographyValuesForScope } from "./theme-settings.js";
+import { latexToOmmlMath, OmmlMath } from "./math-to-omml.js";
 
 // Minimal 1×1 white PNG — used as fallback for SVG ImageRun (docx requires it)
 const MINIMAL_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI6QAAAABJRU5ErkJggg==';
@@ -487,15 +488,20 @@ function processInlineChildren(el, themeStyles, parentStyle = {}) {
     } else if (tag === 'SPAN' && node.classList?.contains('katex')) {
       const formula = extractLatexSource(node);
       if (formula) {
-        runs.push(
-          new TextRun({
-            text: `$${formula}$`,
-            font: themeStyles.code.font,
-            size: Math.max(1, Math.round((parentStyle.size || themeStyles.default.run.size) * 0.92)),
-            color: parentStyle.color || themeStyles.default.run.color,
-            shading: { type: ShadingType.CLEAR, fill: themeStyles.code.background },
-          }),
-        );
+        const ommlChildren = latexToOmmlMath(formula);
+        if (ommlChildren) {
+          runs.push(new OmmlMath(ommlChildren));
+        } else {
+          runs.push(
+            new TextRun({
+              text: `$${formula}$`,
+              font: themeStyles.code.font,
+              size: Math.max(1, Math.round((parentStyle.size || themeStyles.default.run.size) * 0.92)),
+              color: parentStyle.color || themeStyles.default.run.color,
+              shading: { type: ShadingType.CLEAR, fill: themeStyles.code.background },
+            }),
+          );
+        }
       }
     } else {
       runs.push(...processInlineChildren(node, themeStyles, parentStyle));
@@ -512,9 +518,10 @@ function processBlockElement(el, themeStyles, listLevel = -1, imageMap = null) {
   if (tag === 'DIV' && el.classList.contains('math-block')) {
     const formula = extractLatexSource(el);
     if (formula) {
+      const ommlChildren = latexToOmmlMath(formula);
       results.push(
         new Paragraph({
-          children: [new TextRun({
+          children: ommlChildren ? [new OmmlMath(ommlChildren)] : [new TextRun({
             text: `$$${formula}$$`,
             font: themeStyles.code.font,
             size: themeStyles.code.size,
