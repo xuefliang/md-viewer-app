@@ -834,6 +834,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+  pointer-events: none;
 }
 
 #settings-btn {
