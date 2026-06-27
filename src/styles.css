@@ -855,6 +855,10 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   gap: 2px;
 }
 
+.find-row:first-of-type {
+  padding-right: 27px;
+}
+
 #find-bar {
   position: relative;
   display: inline-flex;
@@ -973,10 +977,6 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 #find-bar button:disabled {
   color: #b8bcb6;
   cursor: not-allowed;
-}
-
-.find-replace-row {
-  padding-right: 27px;
 }
 
 #replace-btn,
