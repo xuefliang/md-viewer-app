@@ -117,6 +117,7 @@ let lineNumberRenderId = 0;
 let findMatches = [];
 let activeFindMatchIndex = -1;
 let findMatchMode = "preview";
+let findBarMode = "find";
 let previewFindRestoreQueue = [];
 const VIEW_MODE_KEY = "md-viewer-view-mode";
 const SCREENSHOT_DEMO_ROOT = "/Users/demo/Documents/Markdown Library";
@@ -1056,15 +1057,16 @@ function goToFindMatch(direction = 1) {
   revealFindMatch(findMatches[activeFindMatchIndex]);
 }
 
-function updateReplaceControls() {
+function updateReplaceControls(mode = findBarMode) {
   const isEditorMode = getActiveFindMode() === "editor";
+  const showReplace = isEditorMode && mode === "replace";
   const replaceRow = document.querySelector(".find-replace-row");
   const replaceBtn = replaceButton();
   const replaceAllBtn = replaceAllButton();
 
-  replaceRow?.classList.toggle("hidden", !isEditorMode);
-  if (replaceBtn) replaceBtn.disabled = !isEditorMode;
-  if (replaceAllBtn) replaceAllBtn.disabled = !isEditorMode;
+  replaceRow?.classList.toggle("hidden", !showReplace);
+  if (replaceBtn) replaceBtn.disabled = !showReplace;
+  if (replaceAllBtn) replaceAllBtn.disabled = !showReplace;
 }
 
 function openFindBar() {
@@ -1072,12 +1074,29 @@ function openFindBar() {
   const input = findInputEl();
   if (!bar || !input) return;
 
+  findBarMode = "find";
   bar.classList.remove("hidden");
   updateReplaceControls();
   rebuildFindMatches({ keepSelection: false });
   requestAnimationFrame(() => {
     input.focus();
     input.select();
+  });
+}
+
+function openReplaceBar() {
+  const bar = findBarEl();
+  const input = findInputEl();
+  const replaceInput = replaceInputEl();
+  if (!bar || !input || !replaceInput) return;
+
+  findBarMode = "replace";
+  bar.classList.remove("hidden");
+  updateReplaceControls();
+  rebuildFindMatches({ keepSelection: false });
+  requestAnimationFrame(() => {
+    replaceInput.focus();
+    replaceInput.select();
   });
 }
 
@@ -1794,14 +1813,14 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
       setEditorScrollY(previousEditorScrollY);
       renderEditorLineNumbers();
       if (isFindOpen() || getFindQuery()) {
-        updateReplaceControls();
+        updateReplaceControls(findBarMode);
         rebuildFindMatches({ keepSelection: false });
         if (findMatches.length) revealFindMatch(findMatches[activeFindMatchIndex]);
       }
       updateBackToTopButton();
     });
   } else if (previousMode !== viewMode && isFindOpen()) {
-    updateReplaceControls();
+    updateReplaceControls(findBarMode);
   }
   scheduleLineNumberRender();
   updateBackToTopButton();
@@ -3296,8 +3315,7 @@ function initFindControls() {
     if (isReplaceShortcut) {
       e.preventDefault();
       if (!getActiveTab()) return;
-      openFindBar();
-      replaceInputEl()?.focus();
+      openReplaceBar();
     }
   });
 
