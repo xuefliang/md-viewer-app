@@ -3621,7 +3621,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
 
     if (e.target.closest("#view-mode-toggle, #save-md-btn, #theme-select, #settings-btn, #export-wrapper")) return;
-    if (e.target.closest("#find-bar, #find-toggle-btn")) return;
+    if (e.target.closest("#find-bar, #find-toggle-btn, #replace-toggle-btn")) return;
 
     getCurrentWindow().startDragging();
   });
