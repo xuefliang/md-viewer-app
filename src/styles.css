@@ -786,6 +786,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 #settings-btn,
 #save-md-btn,
 #find-toggle-btn,
+#replace-toggle-btn,
 #export-btn {
   display: inline-flex;
   align-items: center;
@@ -814,12 +815,14 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   padding: 0 10px;
 }
 
-#find-toggle-btn {
+#find-toggle-btn,
+#replace-toggle-btn {
   width: 30px;
   padding: 0;
 }
 
-#find-bar:not(.hidden) + #find-toggle-btn {
+#find-bar:not(.hidden) ~ #find-toggle-btn,
+#find-bar:not(.hidden) ~ #replace-toggle-btn {
   display: none;
 }
 
@@ -1009,6 +1012,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 #settings-btn:hover,
 #save-md-btn:hover:not(:disabled),
 #find-toggle-btn:hover:not(:disabled),
+#replace-toggle-btn:hover:not(:disabled),
 #export-btn:hover:not(:disabled) {
   color: #143f37;
   border-color: #cfd4cb;
@@ -1022,6 +1026,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 #view-mode-toggle button:disabled,
 #save-md-btn:disabled,
 #find-toggle-btn:disabled,
+#replace-toggle-btn:disabled,
 #export-btn:disabled {
   opacity: 0.45;
 }

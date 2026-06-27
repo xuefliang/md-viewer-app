@@ -13,6 +13,7 @@ export const findPreviousButton = () => document.getElementById("find-prev-btn")
 export const findRegexButton = () => document.getElementById("find-regex-btn");
 export const findStatusEl = () => document.getElementById("find-status");
 export const findToggleButton = () => document.getElementById("find-toggle-btn");
+export const replaceToggleButton = () => document.getElementById("replace-toggle-btn");
 export const replaceInputEl = () => document.getElementById("replace-input");
 export const replaceButton = () => document.getElementById("replace-btn");
 export const replaceAllButton = () => document.getElementById("replace-all-btn");

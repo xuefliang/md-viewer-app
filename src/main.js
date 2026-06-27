@@ -46,6 +46,7 @@ import {
   findRegexButton,
   findStatusEl,
   findToggleButton,
+  replaceToggleButton,
   replaceInputEl,
   replaceButton,
   replaceAllButton,
@@ -1846,6 +1847,11 @@ function updateEditorControls() {
     findButton.disabled = !hasDocument;
   }
 
+  const replaceButtonEl = replaceToggleButton();
+  if (replaceButtonEl) {
+    replaceButtonEl.disabled = !hasDocument;
+  }
+
   const status = editorStatusEl();
   if (status) {
     if (!tab) status.textContent = "";
@@ -3256,6 +3262,7 @@ function initFindControls() {
   const replaceInput = replaceInputEl();
 
   findToggleButton()?.addEventListener("click", openFindBar);
+  replaceToggleButton()?.addEventListener("click", openReplaceBar);
   findCloseButton()?.addEventListener("click", () => closeFindBar());
   findNextButton()?.addEventListener("click", () => goToFindMatch(1));
   findPreviousButton()?.addEventListener("click", () => goToFindMatch(-1));
