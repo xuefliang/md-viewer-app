@@ -821,11 +821,6 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   padding: 0;
 }
 
-#find-bar:not(.hidden) ~ #find-toggle-btn,
-#find-bar:not(.hidden) ~ #replace-toggle-btn {
-  display: none;
-}
-
 .toolbar-icon {
   width: 15px;
   height: 15px;

@@ -1091,6 +1091,10 @@ function openReplaceBar() {
   const replaceInput = replaceInputEl();
   if (!bar || !input || !replaceInput) return;
 
+  if (viewMode === "preview") {
+    setViewMode("edit", { focusEditor: false });
+  }
+
   findBarMode = "replace";
   bar.classList.remove("hidden");
   updateReplaceControls();
