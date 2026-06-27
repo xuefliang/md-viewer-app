@@ -849,11 +849,18 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   white-space: nowrap;
 }
 
-#find-bar {
+.find-row {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: 30px;
+}
+
+#find-bar {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
   padding: 2px 3px 2px 8px;
   color: #414641;
   background: #ffffff;
@@ -862,7 +869,8 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   box-shadow: 0 1px 2px rgba(44, 44, 38, 0.04);
 }
 
-#find-input {
+#find-input,
+#replace-input {
   width: 150px;
   min-width: 0;
   height: 24px;
@@ -879,7 +887,8 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   display: none;
 }
 
-#find-input::placeholder {
+#find-input::placeholder,
+#replace-input::placeholder {
   color: #9a9d98;
 }
 
@@ -892,24 +901,98 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   white-space: nowrap;
 }
 
-#find-bar button {
+.find-option {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
+  margin: 0;
   padding: 0;
+  color: #66706a;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.find-option input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.find-option:hover {
+  color: #143f37;
+  background: #f0f2ed;
+}
+
+.find-option:has(input:checked),
+.find-option:has(input:focus-visible) {
+  color: #143f37;
+  background: #e8ebe6;
+  border-color: #c9cfc8;
+}
+
+.find-option-label {
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  pointer-events: none;
+  user-select: none;
+}
+
+#find-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
   color: #66706a;
   background: transparent;
   border: 0;
   border-radius: 5px;
-  font-size: 15px;
+  font-size: 12px;
   line-height: 1;
 }
 
-#find-bar button:hover {
+#find-bar button:hover:not(:disabled) {
   color: #143f37;
   background: #f0f2ed;
+}
+
+#find-bar button:disabled {
+  color: #b8bcb6;
+  cursor: not-allowed;
+}
+
+.find-replace-row {
+  padding-right: 27px;
+}
+
+#replace-btn,
+#replace-all-btn {
+  width: auto;
+  min-width: 34px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+#find-close-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
 }
 
 #export-wrapper {
@@ -1835,12 +1918,19 @@ body.is-resizing-sidebar #sidebar-resizer::after {
     display: none;
   }
 
-  #find-input {
+  #find-input,
+  #replace-input {
     width: 104px;
   }
 
   #find-status {
     min-width: 32px;
+  }
+
+  #replace-btn,
+  #replace-all-btn {
+    min-width: 30px;
+    padding: 0 4px;
   }
 
   .settings-section {

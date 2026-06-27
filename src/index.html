@@ -121,18 +121,37 @@
             <button id="save-md-btn" type="button" disabled title="保存 Markdown (⌘S)" aria-label="保存 Markdown" data-i18n="editor.save" data-i18n-title="editor.saveTitle" data-i18n-aria-label="editor.save">保存</button>
             <span id="editor-status" aria-live="polite"></span>
             <div id="find-bar" class="hidden" role="search" aria-label="查找" data-i18n-aria-label="find.aria">
-              <label class="visually-hidden" for="find-input" data-i18n="find.label">查找</label>
-              <input
-                id="find-input"
-                type="search"
-                placeholder="查找"
-                autocomplete="off"
-                spellcheck="false"
-                data-i18n-placeholder="find.placeholder"
-              />
-              <span id="find-status" aria-live="polite">0/0</span>
-              <button id="find-prev-btn" type="button" title="上一个 (Shift+Enter)" aria-label="上一个" data-i18n-title="find.previousTitle" data-i18n-aria-label="find.previous">‹</button>
-              <button id="find-next-btn" type="button" title="下一个 (Enter)" aria-label="下一个" data-i18n-title="find.nextTitle" data-i18n-aria-label="find.next">›</button>
+              <div class="find-row">
+                <label class="visually-hidden" for="find-input" data-i18n="find.label">查找</label>
+                <input
+                  id="find-input"
+                  type="search"
+                  placeholder="查找"
+                  autocomplete="off"
+                  spellcheck="false"
+                  data-i18n-placeholder="find.placeholder"
+                />
+                <label class="find-option" title="正则表达式" data-i18n-title="find.regexTitle">
+                  <input id="find-regex-btn" type="checkbox" aria-label="正则表达式" data-i18n-aria-label="find.regex" />
+                  <span class="find-option-label">.*</span>
+                </label>
+                <span id="find-status" aria-live="polite">0/0</span>
+                <button id="find-prev-btn" type="button" title="上一个 (Shift+Enter)" aria-label="上一个" data-i18n-title="find.previousTitle" data-i18n-aria-label="find.previous">‹</button>
+                <button id="find-next-btn" type="button" title="下一个 (Enter)" aria-label="下一个" data-i18n-title="find.nextTitle" data-i18n-aria-label="find.next">›</button>
+              </div>
+              <div class="find-row find-replace-row">
+                <label class="visually-hidden" for="replace-input" data-i18n="find.replaceLabel">替换</label>
+                <input
+                  id="replace-input"
+                  type="text"
+                  placeholder="替换"
+                  autocomplete="off"
+                  spellcheck="false"
+                  data-i18n-placeholder="find.replacePlaceholder"
+                />
+                <button id="replace-btn" type="button" title="替换当前并查找下一个 (⌘Enter)" aria-label="替换" data-i18n-title="find.replaceTitle" data-i18n-aria-label="find.replace">替换</button>
+                <button id="replace-all-btn" type="button" title="全部替换" aria-label="全部替换" data-i18n-title="find.replaceAllTitle" data-i18n-aria-label="find.replaceAll">全部</button>
+              </div>
               <button id="find-close-btn" type="button" title="关闭查找 (Esc)" aria-label="关闭查找" data-i18n-title="find.closeTitle" data-i18n-aria-label="find.close">×</button>
             </div>
             <button id="find-toggle-btn" type="button" disabled title="查找 (⌘F)" aria-label="查找" data-i18n-title="find.toggleTitle" data-i18n-aria-label="find.aria">

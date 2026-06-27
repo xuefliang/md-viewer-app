@@ -43,8 +43,12 @@ import {
   findInputEl,
   findNextButton,
   findPreviousButton,
+  findRegexButton,
   findStatusEl,
   findToggleButton,
+  replaceInputEl,
+  replaceButton,
+  replaceAllButton,
   languageSelect,
   readerContentEl,
   saveMarkdownButton,
@@ -647,6 +651,14 @@ function getFindQuery() {
   return findInputEl()?.value || "";
 }
 
+function getReplaceValue() {
+  return replaceInputEl()?.value || "";
+}
+
+function isFindRegex() {
+  return findRegexButton()?.checked || false;
+}
+
 function isFindOpen() {
   return !findBarEl()?.classList.contains("hidden");
 }
@@ -672,29 +684,47 @@ function setFindStatus() {
     : t("find.noMatches");
 }
 
-function collectFindMatches(query, value) {
-  const normalizedQuery = normalizeFindQuery(query);
-  if (!normalizedQuery) return [];
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-  const normalizedValue = normalizeFindQuery(value);
+function buildFindRegex({ global = false } = {}) {
+  const query = getFindQuery();
+  if (!query) return null;
+
+  try {
+    const pattern = isFindRegex() ? query : escapeRegExp(query);
+    const flags = `i${global ? "g" : ""}`;
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
+function collectFindMatches(query, value) {
+  const regex = buildFindRegex({ global: true });
+  if (!regex) return [];
+
   const matches = [];
-  let offset = 0;
   let lineIndex = 0;
   let nextLineBreak = value.indexOf("\n");
+  let match;
 
-  while (offset <= normalizedValue.length) {
-    const index = normalizedValue.indexOf(normalizedQuery, offset);
-    if (index === -1) break;
+  while ((match = regex.exec(value)) !== null) {
+    if (match[0].length === 0) {
+      regex.lastIndex += 1;
+      continue;
+    }
+    const index = match.index;
     while (nextLineBreak !== -1 && nextLineBreak < index) {
       lineIndex += 1;
       nextLineBreak = value.indexOf("\n", nextLineBreak + 1);
     }
     matches.push({
       start: index,
-      end: index + query.length,
+      end: index + match[0].length,
       lineIndex,
     });
-    offset = index + Math.max(1, normalizedQuery.length);
   }
 
   return matches;
@@ -798,21 +828,21 @@ function collectPreviewTextNodes() {
 function collectPreviewFindMatches(query) {
   clearPreviewFindHighlights();
 
-  const normalizedQuery = normalizeFindQuery(query);
-  if (!normalizedQuery) return [];
+  const regex = buildFindRegex({ global: true });
+  if (!regex) return [];
 
   const matches = [];
   const textNodes = collectPreviewTextNodes();
 
   textNodes.forEach((node) => {
-    const normalizedValue = normalizeFindQuery(node.nodeValue);
-    let offset = 0;
-
-    while (offset <= normalizedValue.length) {
-      const index = normalizedValue.indexOf(normalizedQuery, offset);
-      if (index === -1) break;
-      matches.push({ node, start: index, end: index + query.length });
-      offset = index + Math.max(1, normalizedQuery.length);
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(node.nodeValue)) !== null) {
+      if (match[0].length === 0) {
+        regex.lastIndex += 1;
+        continue;
+      }
+      matches.push({ node, start: match.index, end: match.index + match[0].length });
     }
   });
 
@@ -905,6 +935,63 @@ function revealFindMatch(match, options = {}) {
   revealEditorFindMatch(match, options);
 }
 
+function applyReplacementToMatch(matchText, replacement) {
+  if (!isFindRegex()) return replacement;
+  const regex = buildFindRegex({ global: false });
+  if (!regex) return replacement;
+  return matchText.replace(regex, replacement);
+}
+
+function replaceCurrentMatch() {
+  if (findMatchMode !== "editor" || activeFindMatchIndex < 0 || !findMatches.length) return;
+
+  const editor = editorEl();
+  const tab = getActiveTab();
+  if (!editor || !tab) return;
+
+  const match = findMatches[activeFindMatchIndex];
+  const replacement = getReplaceValue();
+  const matchedText = editor.value.slice(match.start, match.end);
+  const replacementText = applyReplacementToMatch(matchedText, replacement);
+
+  editor.value = editor.value.slice(0, match.start) + replacementText + editor.value.slice(match.end);
+  handleEditorInput();
+
+  const cursorPosition = match.start + replacementText.length;
+  editor.setSelectionRange(cursorPosition, cursorPosition);
+
+  rebuildFindMatches({ keepSelection: false });
+  if (findMatches.length) {
+    activeFindMatchIndex = findClosestMatchIndex(cursorPosition);
+    setFindStatus();
+    renderEditorFindHighlights();
+    revealFindMatch(findMatches[activeFindMatchIndex]);
+  }
+}
+
+function replaceAllMatches() {
+  if (findMatchMode !== "editor") return;
+
+  const editor = editorEl();
+  const tab = getActiveTab();
+  if (!editor || !tab) return;
+
+  const regex = buildFindRegex({ global: true });
+  if (!regex) return;
+
+  const replacement = getReplaceValue();
+  const originalValue = editor.value;
+  const newValue = originalValue.replace(regex, replacement);
+  if (newValue === originalValue) return;
+
+  editor.value = newValue;
+  handleEditorInput();
+
+  rebuildFindMatches({ keepSelection: false });
+  setFindStatus();
+  renderEditorFindHighlights();
+}
+
 function rebuildFindMatches({ keepSelection = true } = {}) {
   const query = getFindQuery();
   findMatchMode = getActiveFindMode();
@@ -969,12 +1056,24 @@ function goToFindMatch(direction = 1) {
   revealFindMatch(findMatches[activeFindMatchIndex]);
 }
 
+function updateReplaceControls() {
+  const isEditorMode = getActiveFindMode() === "editor";
+  const replaceRow = document.querySelector(".find-replace-row");
+  const replaceBtn = replaceButton();
+  const replaceAllBtn = replaceAllButton();
+
+  replaceRow?.classList.toggle("hidden", !isEditorMode);
+  if (replaceBtn) replaceBtn.disabled = !isEditorMode;
+  if (replaceAllBtn) replaceAllBtn.disabled = !isEditorMode;
+}
+
 function openFindBar() {
   const bar = findBarEl();
   const input = findInputEl();
   if (!bar || !input) return;
 
   bar.classList.remove("hidden");
+  updateReplaceControls();
   rebuildFindMatches({ keepSelection: false });
   requestAnimationFrame(() => {
     input.focus();
@@ -1695,11 +1794,14 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
       setEditorScrollY(previousEditorScrollY);
       renderEditorLineNumbers();
       if (isFindOpen() || getFindQuery()) {
+        updateReplaceControls();
         rebuildFindMatches({ keepSelection: false });
         if (findMatches.length) revealFindMatch(findMatches[activeFindMatchIndex]);
       }
       updateBackToTopButton();
     });
+  } else if (previousMode !== viewMode && isFindOpen()) {
+    updateReplaceControls();
   }
   scheduleLineNumberRender();
   updateBackToTopButton();
@@ -3132,11 +3234,21 @@ function initEditingControls() {
 
 function initFindControls() {
   const input = findInputEl();
+  const replaceInput = replaceInputEl();
 
   findToggleButton()?.addEventListener("click", openFindBar);
   findCloseButton()?.addEventListener("click", () => closeFindBar());
   findNextButton()?.addEventListener("click", () => goToFindMatch(1));
   findPreviousButton()?.addEventListener("click", () => goToFindMatch(-1));
+  replaceButton()?.addEventListener("click", replaceCurrentMatch);
+  replaceAllButton()?.addEventListener("click", replaceAllMatches);
+
+  findRegexButton()?.addEventListener("change", () => {
+    rebuildFindMatches({ keepSelection: false });
+    if (findMatches.length) {
+      revealFindMatch(findMatches[activeFindMatchIndex]);
+    }
+  });
 
   input?.addEventListener("input", () => {
     rebuildFindMatches({ keepSelection: false });
@@ -3158,12 +3270,35 @@ function initFindControls() {
     }
   });
 
+  replaceInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      replaceCurrentMatch();
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeFindBar();
+    }
+  });
+
   document.addEventListener("keydown", (e) => {
     const isFindShortcut = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f";
-    if (!isFindShortcut) return;
-    e.preventDefault();
-    if (!getActiveTab()) return;
-    openFindBar();
+    if (isFindShortcut) {
+      e.preventDefault();
+      if (!getActiveTab()) return;
+      openFindBar();
+      return;
+    }
+
+    const isReplaceShortcut = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "h";
+    if (isReplaceShortcut) {
+      e.preventDefault();
+      if (!getActiveTab()) return;
+      openFindBar();
+      replaceInputEl()?.focus();
+    }
   });
 
   setFindStatus();
