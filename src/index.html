@@ -117,6 +117,7 @@
               <button type="button" data-view-mode="preview" aria-pressed="true" disabled data-i18n="viewMode.preview">预览</button>
               <button type="button" data-view-mode="edit" aria-pressed="false" disabled data-i18n="viewMode.edit">编辑</button>
               <button type="button" data-view-mode="split" aria-pressed="false" disabled data-i18n="viewMode.split">分屏</button>
+              <button type="button" data-view-mode="translate" aria-pressed="false" disabled data-i18n="viewMode.translate">翻译</button>
             </div>
             <button id="save-md-btn" type="button" disabled title="保存 Markdown (⌘S)" aria-label="保存 Markdown" data-i18n="editor.save" data-i18n-title="editor.saveTitle" data-i18n-aria-label="editor.save">保存</button>
             <span id="editor-status" aria-live="polite"></span>
@@ -206,6 +207,16 @@
             <article id="markdown-content" class="markdown-body"></article>
           </div>
         </div>
+        <div id="translate-view" class="hidden">
+          <div id="translate-progress" class="hidden">
+            <div class="translate-progress-track">
+              <div id="translate-progress-bar" class="translate-progress-bar"></div>
+            </div>
+            <div id="translate-progress-text"></div>
+          </div>
+          <div id="translate-error" class="hidden"></div>
+          <div id="translate-content" class="markdown-body"></div>
+        </div>
         <div id="word-count-status" class="hidden" aria-live="polite"></div>
         <button id="back-to-top-btn" class="hidden" type="button" title="返回顶端" aria-label="返回顶端" data-i18n-title="backToTop" data-i18n-aria-label="backToTop">↑</button>
       </main>
@@ -256,6 +267,45 @@
               <p id="settings-update-status" class="settings-status" aria-live="polite"></p>
             </div>
             <button id="settings-check-update" class="settings-secondary-action" type="button" data-i18n="update.check">检查更新</button>
+          </section>
+          <section class="settings-section settings-section-block">
+            <div class="settings-section-copy">
+              <h3 data-i18n="settings.translationTitle">翻译</h3>
+              <p data-i18n="settings.translationDescription">配置 LLM API 用于全文翻译。</p>
+            </div>
+          </section>
+          <section class="settings-section settings-section-vertical">
+            <div class="settings-field">
+              <label for="settings-api-key" data-i18n="settings.apiKey">API 密钥</label>
+              <div class="settings-input-row">
+                <input id="settings-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-..." />
+                <button id="settings-api-key-toggle" type="button" class="settings-icon-btn" title="显示/隐藏" aria-label="显示/隐藏密码">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="settings-field">
+              <label for="settings-api-endpoint" data-i18n="settings.apiEndpoint">API 地址</label>
+              <input id="settings-api-endpoint" type="text" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com/v1/chat/completions" />
+            </div>
+            <div class="settings-field">
+              <label for="settings-model-name" data-i18n="settings.model">模型名称</label>
+              <input id="settings-model-name" type="text" autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini" />
+            </div>
+            <div class="settings-field-row">
+              <div class="settings-field">
+                <label for="settings-source-lang" data-i18n="settings.sourceLang">源语言</label>
+                <select id="settings-source-lang"></select>
+              </div>
+              <div class="settings-field">
+                <label for="settings-target-lang" data-i18n="settings.targetLang">目标语言</label>
+                <select id="settings-target-lang"></select>
+              </div>
+            </div>
+            <div class="settings-field">
+              <button id="settings-test-connection" type="button" class="settings-secondary-action" data-i18n="settings.testConnection">测试连接</button>
+              <span id="settings-test-status" class="settings-status" aria-live="polite"></span>
+            </div>
           </section>
         </div>
         <footer class="dialog-actions">
