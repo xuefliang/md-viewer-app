@@ -117,7 +117,7 @@ function splitMarkdownIntoChunks(markdown, maxLen = 3000) {
   return chunks;
 }
 
-async function streamTranslateChunk(chunk, config) {
+async function streamTranslateChunk(chunk, config, signal) {
   const { apiKey, apiEndpoint, model, sourceLang, targetLang } = config;
   const systemPrompt = buildSystemPrompt(sourceLang, targetLang);
 
@@ -136,6 +136,7 @@ async function streamTranslateChunk(chunk, config) {
       stream: true,
       temperature: 0.3,
     }),
+    signal,
   });
 
   if (!resp.ok) {
@@ -203,14 +204,15 @@ export async function testTranslationConnection(config) {
   return content.trim().length > 0;
 }
 
-export async function translateMarkdown(markdown, config, onProgress) {
+export async function translateMarkdown(markdown, config, onProgress, signal) {
   if (!markdown || !markdown.trim()) return markdown;
 
   const chunks = splitMarkdownIntoChunks(markdown);
   const results = [];
 
   for (let i = 0; i < chunks.length; i++) {
-    const translated = await streamTranslateChunk(chunks[i], config);
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const translated = await streamTranslateChunk(chunks[i], config, signal);
     results.push(translated);
     if (onProgress) {
       onProgress({ chunk: i + 1, total: chunks.length, text: translated });

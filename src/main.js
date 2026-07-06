@@ -1852,6 +1852,7 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
       startTranslation();
     }
   } else {
+    translationAbortController?.abort();
     translateViewEl()?.classList.add("hidden");
     editorShellEl()?.classList.remove("hidden");
     contentEl()?.classList.remove("hidden");
@@ -1860,12 +1861,20 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
   updateWordCountStatus();
 }
 
+let translationRequestId = 0;
+let translationAbortController = null;
+
 async function startTranslation() {
+  translationAbortController?.abort();
+  translationAbortController = new AbortController();
+  const requestId = ++translationRequestId;
+
   const tab = getActiveTab();
   if (!tab) return;
 
   const progressEl = translateProgressEl();
   const progressText = translateProgressTextEl();
+  const progressBar = document.getElementById("translate-progress-bar");
   const errorEl = translateErrorEl();
   const contentElTranslate = translateContentEl();
 
@@ -1879,14 +1888,20 @@ async function startTranslation() {
 
   errorEl?.classList.add("hidden");
   progressEl?.classList.remove("hidden");
+  if (progressBar) progressBar.style.width = "0%";
 
   try {
-    const translated = await translateMarkdown(tab.content, getTranslationConfig(), ({ chunk, total, text }) => {
+    const translated = await translateMarkdown(tab.content, getTranslationConfig(), ({ chunk, total }) => {
+      if (requestId !== translationRequestId) return;
       if (progressText) {
         progressText.textContent = t("translate.translating", { chunk, total });
       }
-    });
+      if (progressBar) {
+        progressBar.style.width = `${Math.round((chunk / total) * 100)}%`;
+      }
+    }, translationAbortController?.signal);
 
+    if (requestId !== translationRequestId) return;
     tab.translatedContent = translated;
     if (contentElTranslate) {
       await renderMarkdownContent(translated, {
@@ -1897,8 +1912,12 @@ async function startTranslation() {
       });
       contentElTranslate.innerHTML = contentEl()?.innerHTML;
     }
-    progressEl?.classList.add("hidden");
+    if (progressText) progressText.textContent = t("translate.complete");
+    if (progressBar) progressBar.style.width = "100%";
+    setTimeout(() => progressEl?.classList.add("hidden"), 1200);
   } catch (err) {
+    if (requestId !== translationRequestId) return;
+    if (err.name === "AbortError") return;
     progressEl?.classList.add("hidden");
     if (errorEl) {
       errorEl.textContent = t("translate.error", { message: err.message || String(err) });
