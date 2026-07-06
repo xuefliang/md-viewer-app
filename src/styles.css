@@ -1312,13 +1312,21 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 
 /* Translate view */
 #translate-view {
-  padding: 32px 40px;
+  padding: 32px 40px 120px;
   max-width: 860px;
   margin: 0 auto;
   min-height: 100%;
 }
 
 #translate-view.hidden {
+  display: none;
+}
+
+.mode-translate #document-workspace {
+  display: none;
+}
+
+.mode-translate #empty-state {
   display: none;
 }
 
@@ -1364,6 +1372,32 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 
 #translate-content {
   line-height: 1.7;
+}
+
+#translate-actions {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e5df;
+}
+
+#translate-actions.hidden {
+  display: none;
+}
+
+.translate-action-btn {
+  min-height: 34px;
+  padding: 6px 18px;
+  color: #ffffff;
+  background: var(--app-accent);
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.translate-action-btn:hover {
+  background: #2d5a52;
 }
 
 /* Settings translation section */

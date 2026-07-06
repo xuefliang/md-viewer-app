@@ -31,3 +31,5 @@ export const translateProgressEl = () => document.getElementById("translate-prog
 export const translateProgressTextEl = () => document.getElementById("translate-progress-text");
 export const translateErrorEl = () => document.getElementById("translate-error");
 export const translateContentEl = () => document.getElementById("translate-content");
+export const translateActionsEl = () => document.getElementById("translate-actions");
+export const saveTranslationBtn = () => document.getElementById("save-translation-btn");

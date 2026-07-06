@@ -70,6 +70,8 @@ import {
   translateProgressTextEl,
   translateErrorEl,
   translateContentEl,
+  translateActionsEl,
+  saveTranslationBtn,
   wordCountStatusEl,
 } from "./dom.js";
 import { handleEditorKeyDown as handleMarkdownEditorKeyDown } from "./editor-behavior.js";
@@ -1889,6 +1891,7 @@ async function startTranslation() {
   errorEl?.classList.add("hidden");
   progressEl?.classList.remove("hidden");
   if (progressBar) progressBar.style.width = "0%";
+  translateActionsEl()?.classList.add("hidden");
 
   try {
     const translated = await translateMarkdown(tab.content, getTranslationConfig(), ({ chunk, total }) => {
@@ -1915,6 +1918,8 @@ async function startTranslation() {
     if (progressText) progressText.textContent = t("translate.complete");
     if (progressBar) progressBar.style.width = "100%";
     setTimeout(() => progressEl?.classList.add("hidden"), 1200);
+    const actionsEl = translateActionsEl();
+    if (actionsEl) actionsEl.classList.remove("hidden");
   } catch (err) {
     if (requestId !== translationRequestId) return;
     if (err.name === "AbortError") return;
@@ -3760,6 +3765,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initSettingsDialog();
   initTypographySettings();
   initTranslationSettings();
+  saveTranslationBtn()?.addEventListener("click", () => { void saveTranslatedContent(); });
   initCopyHandler({ contentEl });
   initExportMenu();
   initUnsavedDialog();
@@ -3849,7 +3855,30 @@ window.addEventListener("DOMContentLoaded", async () => {
           const initial = await invoke("get_initial_file");
           if (initial) {
             createTab(initial.path, initial.content);
-          }
+}
+
+async function saveTranslatedContent() {
+  const tab = getActiveTab();
+  if (!tab?.translatedContent) return;
+
+  try {
+    const defaultName = tab.path
+      ? getFileName(tab.path).replace(/\.md$/i, "") + ".translated.md"
+      : "translated.md";
+    const targetPath = await save({
+      title: t("dialog.saveMarkdown"),
+      defaultPath: defaultName,
+      filters: [{ name: t("filter.markdown"), extensions: ["md", "markdown"] }],
+      canCreateDirectories: true,
+    });
+    if (!targetPath) return;
+
+    const contents = applyLineEnding(tab.translatedContent, tab.lineEnding || "\n");
+    await invoke("write_markdown_file", { path: targetPath, contents });
+  } catch (err) {
+    window.alert(t("translate.saveFailed", { message: err.message || String(err) }));
+  }
+}
         }
       } catch (_) {}
     }
