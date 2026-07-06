@@ -26,3 +26,8 @@ export const saveMarkdownButton = () => document.getElementById("save-md-btn");
 export const editorStatusEl = () => document.getElementById("editor-status");
 export const wordCountStatusEl = () => document.getElementById("word-count-status");
 export const currentThemeId = () => document.body.getAttribute("data-theme") || "default";
+export const translateViewEl = () => document.getElementById("translate-view");
+export const translateProgressEl = () => document.getElementById("translate-progress");
+export const translateProgressTextEl = () => document.getElementById("translate-progress-text");
+export const translateErrorEl = () => document.getElementById("translate-error");
+export const translateContentEl = () => document.getElementById("translate-content");
