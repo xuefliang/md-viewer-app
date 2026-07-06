@@ -29,6 +29,15 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { initCopyHandler } from "./copy-handler.js";
 import { exportDOCX } from "./docx-exporter.js";
 import {
+  getTranslationConfig,
+  saveTranslationConfig,
+  isTranslationConfigured,
+  translateMarkdown,
+  testTranslationConnection,
+  LANGUAGES,
+  getLanguageName,
+} from "./translator.js";
+import {
   backToTopButton,
   contentEl,
   currentThemeId,
@@ -36,6 +45,7 @@ import {
   editorEl,
   editorFindHighlightsEl,
   editorLineNumbersEl,
+  editorShellEl,
   editorStatusEl,
   emptyEl,
   findBarEl,
@@ -55,6 +65,11 @@ import {
   saveMarkdownButton,
   tabListEl,
   themeSelect,
+  translateViewEl,
+  translateProgressEl,
+  translateProgressTextEl,
+  translateErrorEl,
+  translateContentEl,
   wordCountStatusEl,
 } from "./dom.js";
 import { handleEditorKeyDown as handleMarkdownEditorKeyDown } from "./editor-behavior.js";
@@ -1782,7 +1797,7 @@ function handleEditorKeyDown(event) {
 }
 
 function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
-  const nextMode = ["preview", "edit", "split"].includes(mode) ? mode : "preview";
+  const nextMode = ["preview", "edit", "split", "translate"].includes(mode) ? mode : "preview";
   const previousMode = viewMode;
   const previousReaderScrollY = getReaderScrollY();
   const previousEditorScrollY = getEditorScrollY();
@@ -1794,13 +1809,13 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
 
   const workspaceEl = documentWorkspaceEl();
   if (workspaceEl) {
-    workspaceEl.classList.remove("mode-preview", "mode-edit", "mode-split");
+    workspaceEl.classList.remove("mode-preview", "mode-edit", "mode-split", "mode-translate");
     workspaceEl.classList.add(`mode-${viewMode}`);
   }
 
   const readerEl = readerContentEl();
   if (readerEl) {
-    readerEl.classList.remove("reader-mode-preview", "reader-mode-edit", "reader-mode-split");
+    readerEl.classList.remove("reader-mode-preview", "reader-mode-edit", "reader-mode-split", "reader-mode-translate");
     readerEl.classList.add(`reader-mode-${viewMode}`);
   }
 
@@ -1828,8 +1843,68 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
     updateReplaceControls(findBarMode);
   }
   scheduleLineNumberRender();
+  // Handle translate view visibility
+  if (viewMode === "translate") {
+    translateViewEl()?.classList.remove("hidden");
+    editorShellEl()?.classList.add("hidden");
+    contentEl()?.classList.add("hidden");
+    if (previousMode !== "translate" && getActiveTab()) {
+      startTranslation();
+    }
+  } else {
+    translateViewEl()?.classList.add("hidden");
+    editorShellEl()?.classList.remove("hidden");
+    contentEl()?.classList.remove("hidden");
+  }
   updateBackToTopButton();
   updateWordCountStatus();
+}
+
+async function startTranslation() {
+  const tab = getActiveTab();
+  if (!tab) return;
+
+  const progressEl = translateProgressEl();
+  const progressText = translateProgressTextEl();
+  const errorEl = translateErrorEl();
+  const contentElTranslate = translateContentEl();
+
+  if (!isTranslationConfigured()) {
+    if (errorEl) {
+      errorEl.textContent = t("translate.configureFirst");
+      errorEl.classList.remove("hidden");
+    }
+    return;
+  }
+
+  errorEl?.classList.add("hidden");
+  progressEl?.classList.remove("hidden");
+
+  try {
+    const translated = await translateMarkdown(tab.content, getTranslationConfig(), ({ chunk, total, text }) => {
+      if (progressText) {
+        progressText.textContent = t("translate.translating", { chunk, total });
+      }
+    });
+
+    tab.translatedContent = translated;
+    if (contentElTranslate) {
+      await renderMarkdownContent(translated, {
+        filePath: tab.path,
+        invoke,
+        isTauriRuntime,
+        workspaceRoot: workspace?.root || null,
+      });
+      contentElTranslate.innerHTML = contentEl()?.innerHTML;
+    }
+    progressEl?.classList.add("hidden");
+  } catch (err) {
+    progressEl?.classList.add("hidden");
+    if (errorEl) {
+      errorEl.textContent = t("translate.error", { message: err.message || String(err) });
+      errorEl.classList.remove("hidden");
+    }
+  }
 }
 
 function updateEditorControls() {
@@ -2954,6 +3029,83 @@ async function handleManualUpdateCheck() {
   }
 }
 
+function initTranslationSettings() {
+  const config = getTranslationConfig();
+  const isEnglish = getLocale() === "en-US";
+
+  const apiKeyInput = document.getElementById("settings-api-key");
+  const apiEndpointInput = document.getElementById("settings-api-endpoint");
+  const modelNameInput = document.getElementById("settings-model-name");
+  const sourceLangSelect = document.getElementById("settings-source-lang");
+  const targetLangSelect = document.getElementById("settings-target-lang");
+  const testBtn = document.getElementById("settings-test-connection");
+  const testStatus = document.getElementById("settings-test-status");
+  const apiKeyToggle = document.getElementById("settings-api-key-toggle");
+
+  if (apiKeyInput) apiKeyInput.value = config.apiKey;
+  if (apiEndpointInput) apiEndpointInput.value = config.apiEndpoint;
+  if (modelNameInput) modelNameInput.value = config.model;
+
+  if (sourceLangSelect) {
+    sourceLangSelect.innerHTML = "";
+    LANGUAGES.forEach((lang) => {
+      const option = document.createElement("option");
+      option.value = lang.id;
+      option.textContent = isEnglish ? lang.label_en : lang.label;
+      option.selected = lang.id === config.sourceLang;
+      sourceLangSelect.appendChild(option);
+    });
+  }
+
+  if (targetLangSelect) {
+    targetLangSelect.innerHTML = "";
+    LANGUAGES.filter((l) => l.id !== "auto").forEach((lang) => {
+      const option = document.createElement("option");
+      option.value = lang.id;
+      option.textContent = isEnglish ? lang.label_en : lang.label;
+      option.selected = lang.id === config.targetLang;
+      targetLangSelect.appendChild(option);
+    });
+  }
+
+  const saveConfig = () => {
+    saveTranslationConfig({
+      apiKey: apiKeyInput?.value || "",
+      apiEndpoint: apiEndpointInput?.value || "",
+      model: modelNameInput?.value || "",
+      sourceLang: sourceLangSelect?.value || "auto",
+      targetLang: targetLangSelect?.value || "zh-CN",
+    });
+  };
+
+  apiKeyInput?.addEventListener("change", saveConfig);
+  apiEndpointInput?.addEventListener("change", saveConfig);
+  modelNameInput?.addEventListener("change", saveConfig);
+  sourceLangSelect?.addEventListener("change", saveConfig);
+  targetLangSelect?.addEventListener("change", saveConfig);
+
+  apiKeyToggle?.addEventListener("click", () => {
+    if (!apiKeyInput) return;
+    apiKeyInput.type = apiKeyInput.type === "password" ? "text" : "password";
+  });
+
+  testBtn?.addEventListener("click", async () => {
+    if (!testStatus) return;
+    testStatus.textContent = t("translate.testing");
+    testStatus.style.color = "";
+    saveConfig();
+
+    try {
+      await testTranslationConnection(getTranslationConfig());
+      testStatus.textContent = t("translate.testSuccess");
+      testStatus.style.color = "var(--app-accent)";
+    } catch (err) {
+      testStatus.textContent = t("translate.testFailed", { message: err.message || String(err) });
+      testStatus.style.color = "#a13d34";
+    }
+  });
+}
+
 function initSettingsDialog() {
   const backdrop = document.getElementById("settings-backdrop");
   const settingsDialog = document.getElementById("settings-dialog");
@@ -3588,6 +3740,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initTheme();
   initSettingsDialog();
   initTypographySettings();
+  initTranslationSettings();
   initCopyHandler({ contentEl });
   initExportMenu();
   initUnsavedDialog();
