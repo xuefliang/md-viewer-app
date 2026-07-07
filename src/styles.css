@@ -1316,6 +1316,26 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   max-width: 860px;
   margin: 0 auto;
   min-height: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+#translate-view::-webkit-scrollbar {
+  width: 10px;
+}
+
+#translate-view::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#translate-view::-webkit-scrollbar-thumb {
+  background: var(--app-line-strong);
+  border-radius: 5px;
+  border: 2px solid var(--app-page);
+}
+
+#translate-view::-webkit-scrollbar-thumb:hover {
+  background: var(--app-muted);
 }
 
 #translate-view.hidden {
