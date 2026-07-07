@@ -33,3 +33,5 @@ export const translateErrorEl = () => document.getElementById("translate-error")
 export const translateContentEl = () => document.getElementById("translate-content");
 export const translateActionsEl = () => document.getElementById("translate-actions");
 export const saveTranslationBtn = () => document.getElementById("save-translation-btn");
+export const translateStartPromptEl = () => document.getElementById("translate-start-prompt");
+export const startTranslationBtn = () => document.getElementById("start-translation-btn");

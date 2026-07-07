@@ -72,6 +72,8 @@ import {
   translateContentEl,
   translateActionsEl,
   saveTranslationBtn,
+  translateStartPromptEl,
+  startTranslationBtn,
   wordCountStatusEl,
 } from "./dom.js";
 import { handleEditorKeyDown as handleMarkdownEditorKeyDown } from "./editor-behavior.js";
@@ -1866,9 +1868,15 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
           });
         }
         translateProgressEl()?.classList.add("hidden");
+        translateStartPromptEl()?.classList.add("hidden");
         translateActionsEl()?.classList.remove("hidden");
       } else {
-        startTranslation();
+        // 未翻译过，显示开始翻译提示，等待用户确认
+        translateProgressEl()?.classList.add("hidden");
+        translateErrorEl()?.classList.add("hidden");
+        translateContentEl()?.classList.add("hidden");
+        translateActionsEl()?.classList.add("hidden");
+        translateStartPromptEl()?.classList.remove("hidden");
       }
     }
   } else {
@@ -1910,6 +1918,8 @@ async function startTranslation() {
   progressEl?.classList.remove("hidden");
   if (progressBar) progressBar.style.width = "0%";
   translateActionsEl()?.classList.add("hidden");
+  translateStartPromptEl()?.classList.add("hidden");
+  translateContentEl()?.classList.remove("hidden");
 
   try {
     const translated = await translateMarkdown(tab.content, getTranslationConfig(), ({ chunk, total }) => {
@@ -3802,6 +3812,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initTypographySettings();
   initTranslationSettings();
   saveTranslationBtn()?.addEventListener("click", () => { void saveTranslatedContent(); });
+  startTranslationBtn()?.addEventListener("click", () => { void startTranslation(); });
   initCopyHandler({ contentEl });
   initExportMenu();
   initUnsavedDialog();
