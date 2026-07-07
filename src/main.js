@@ -1850,8 +1850,26 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
     translateViewEl()?.classList.remove("hidden");
     editorShellEl()?.classList.add("hidden");
     contentEl()?.classList.add("hidden");
-    if (previousMode !== "translate" && getActiveTab()) {
-      startTranslation();
+    const tab = getActiveTab();
+    if (previousMode !== "translate" && tab) {
+      if (tab.translatedContent) {
+        // 已有翻译结果，直接渲染，避免重复翻译
+        const translateContent = translateContentEl();
+        if (translateContent) {
+          renderMarkdownContent(tab.translatedContent, {
+            filePath: tab.path,
+            invoke,
+            isTauriRuntime,
+            workspaceRoot: workspace?.root || null,
+          }).then(() => {
+            translateContent.innerHTML = contentEl()?.innerHTML;
+          });
+        }
+        translateProgressEl()?.classList.add("hidden");
+        translateActionsEl()?.classList.remove("hidden");
+      } else {
+        startTranslation();
+      }
     }
   } else {
     translationAbortController?.abort();
