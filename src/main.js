@@ -1938,6 +1938,24 @@ async function startTranslation() {
     setTimeout(() => progressEl?.classList.add("hidden"), 1200);
     const actionsEl = translateActionsEl();
     if (actionsEl) actionsEl.classList.remove("hidden");
+
+    // 自动保存翻译结果（仅当原文有路径时）
+    if (tab.path) {
+      const baseName = getFileName(tab.path).replace(/\.md$/i, "");
+      const defaultName = baseName + ".translated.md";
+      const dirName = getDirName(tab.path);
+      const targetPath = dirName ? joinLocalPath(dirName, defaultName) : defaultName;
+      if (!isSameLocalPath(targetPath, tab.path)) {
+        const contents = applyLineEnding(tab.translatedContent, tab.lineEnding || "\n");
+        invoke("write_markdown_file", { path: targetPath, contents })
+          .then(() => {
+            if (progressText) progressText.textContent = t("translate.autoSaved");
+          })
+          .catch((err) => {
+            if (progressText) progressText.textContent = t("translate.autoSaveFailed", { message: err.message || String(err) });
+          });
+      }
+    }
   } catch (err) {
     if (requestId !== translationRequestId) return;
     if (err.name === "AbortError") return;
