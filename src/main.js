@@ -1855,28 +1855,25 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
     const tab = getActiveTab();
     if (previousMode !== "translate" && tab) {
       if (tab.translatedContent) {
-        // 已有翻译结果，直接渲染，避免重复翻译
-        const translateContent = translateContentEl();
-        if (translateContent) {
-          renderMarkdownContent(tab.translatedContent, {
-            filePath: tab.path,
-            invoke,
-            isTauriRuntime,
-            workspaceRoot: workspace?.root || null,
-          }).then(() => {
-            translateContent.innerHTML = contentEl()?.innerHTML;
-          });
+        renderTranslatedContent(tab.translatedContent, tab);
+      } else if (tab.path && isTauriRuntime) {
+        // 尝试加载同目录下已有的翻译文件
+        const baseName = getFileName(tab.path).replace(/\.md$/i, "");
+        const translatedPath = joinLocalPath(getDirName(tab.path), baseName + ".translated.md");
+        if (!isSameLocalPath(translatedPath, tab.path)) {
+          invoke("read_markdown_file", { path: translatedPath })
+            .then((result) => {
+              tab.translatedContent = result.content;
+              renderTranslatedContent(result.content, tab);
+            })
+            .catch(() => {
+              showTranslateStartPrompt();
+            });
+        } else {
+          showTranslateStartPrompt();
         }
-        translateProgressEl()?.classList.add("hidden");
-        translateStartPromptEl()?.classList.add("hidden");
-        translateActionsEl()?.classList.remove("hidden");
       } else {
-        // 未翻译过，显示开始翻译提示，等待用户确认
-        translateProgressEl()?.classList.add("hidden");
-        translateErrorEl()?.classList.add("hidden");
-        translateContentEl()?.classList.add("hidden");
-        translateActionsEl()?.classList.add("hidden");
-        translateStartPromptEl()?.classList.remove("hidden");
+        showTranslateStartPrompt();
       }
     }
   } else {
@@ -1891,6 +1888,32 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
 
 let translationRequestId = 0;
 let translationAbortController = null;
+
+function renderTranslatedContent(content, tab) {
+  const translateContent = translateContentEl();
+  if (translateContent) {
+    renderMarkdownContent(content, {
+      filePath: tab.path,
+      invoke,
+      isTauriRuntime,
+      workspaceRoot: workspace?.root || null,
+    }).then(() => {
+      translateContent.innerHTML = contentEl()?.innerHTML;
+    });
+  }
+  translateProgressEl()?.classList.add("hidden");
+  translateStartPromptEl()?.classList.add("hidden");
+  translateActionsEl()?.classList.remove("hidden");
+  translateContentEl()?.classList.remove("hidden");
+}
+
+function showTranslateStartPrompt() {
+  translateProgressEl()?.classList.add("hidden");
+  translateErrorEl()?.classList.add("hidden");
+  translateContentEl()?.classList.add("hidden");
+  translateActionsEl()?.classList.add("hidden");
+  translateStartPromptEl()?.classList.remove("hidden");
+}
 
 async function startTranslation() {
   translationAbortController?.abort();

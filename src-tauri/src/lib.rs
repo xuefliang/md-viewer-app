@@ -383,6 +383,15 @@ fn open_file(
     Ok(payload)
 }
 
+#[tauri::command]
+fn read_markdown_file(path: String) -> Result<FilePayload, String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+    read_md_file(&path_buf)
+}
+
 fn collect_markdown_files(
     root: &Path,
     dir: &Path,
@@ -727,6 +736,7 @@ pub fn run() {
             write_export_file,
             save_markdown_file,
             write_markdown_file,
+            read_markdown_file,
             reveal_path,
             open_workspace_in_new_window
         ])
