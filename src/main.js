@@ -1897,8 +1897,7 @@ function renderTranslatedContent(content, tab) {
       invoke,
       isTauriRuntime,
       workspaceRoot: workspace?.root || null,
-    }).then(() => {
-      translateContent.innerHTML = contentEl()?.innerHTML;
+      targetEl: translateContent,
     });
   }
   translateProgressEl()?.classList.add("hidden");
@@ -1963,8 +1962,8 @@ async function startTranslation() {
         invoke,
         isTauriRuntime,
         workspaceRoot: workspace?.root || null,
+        targetEl: contentElTranslate,
       });
-      contentElTranslate.innerHTML = contentEl()?.innerHTML;
     }
     if (progressText) progressText.textContent = t("translate.complete");
     if (progressBar) progressBar.style.width = "100%";

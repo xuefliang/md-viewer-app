@@ -88,8 +88,9 @@ function showMermaidError(diagram, source, error) {
   diagram.replaceChildren(message, pre);
 }
 
-async function renderMermaidDiagrams() {
-  const diagrams = Array.from(contentEl().querySelectorAll(".mermaid-diagram"));
+async function renderMermaidDiagrams(targetEl = null) {
+  const container = targetEl || contentEl();
+  const diagrams = Array.from(container.querySelectorAll(".mermaid-diagram"));
   if (!diagrams.length) return;
 
   let mermaid;
@@ -130,10 +131,11 @@ async function renderMermaidDiagrams() {
   }));
 }
 
-async function rewriteMarkdownImageSources(documentPath, { invoke, isTauriRuntime, workspaceRoot } = {}) {
+async function rewriteMarkdownImageSources(documentPath, { invoke, isTauriRuntime, workspaceRoot, targetEl } = {}) {
   if (!isTauriRuntime) return;
 
-  const images = Array.from(contentEl().querySelectorAll("img[src]"));
+  const container = targetEl || contentEl();
+  const images = Array.from(container.querySelectorAll("img[src]"));
 
   await Promise.all(images.map(async (img) => {
     const originalSrc = img.getAttribute("src");
@@ -161,13 +163,17 @@ export async function renderMarkdown(raw, {
   isTauriRuntime = false,
   workspaceRoot = null,
   afterRender,
+  targetEl = null,
 } = {}) {
   const html = md.render(raw);
-  contentEl().innerHTML = html;
-  await rewriteMarkdownImageSources(filePath, { invoke, isTauriRuntime, workspaceRoot });
-  await renderMermaidDiagrams();
-  documentWorkspaceEl().hidden = false;
-  emptyEl().style.display = "none";
+  const el = targetEl || contentEl();
+  el.innerHTML = html;
+  await rewriteMarkdownImageSources(filePath, { invoke, isTauriRuntime, workspaceRoot, targetEl: el });
+  await renderMermaidDiagrams(el);
+  if (!targetEl) {
+    documentWorkspaceEl().hidden = false;
+    emptyEl().style.display = "none";
+  }
   afterRender?.();
 }
 
