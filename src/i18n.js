@@ -176,6 +176,10 @@ const messages = {
     "settings.sourceLang": "源语言",
     "settings.targetLang": "目标语言",
     "settings.testConnection": "测试连接",
+    "settings.contentWidthTitle": "内容区宽度",
+    "settings.contentWidthDescription": "调整预览和翻译页面内容区占窗口宽度的百分比。数值越小，左右留白越大。",
+    "settings.contentWidthAria": "内容区宽度",
+    "settings.contentWidthNumberAria": "内容区宽度百分比",
   },
   "en-US": {
     "app.name": "MD Viewer",
@@ -346,6 +350,10 @@ const messages = {
     "settings.sourceLang": "Source Language",
     "settings.targetLang": "Target Language",
     "settings.testConnection": "Test Connection",
+    "settings.contentWidthTitle": "Content Width",
+    "settings.contentWidthDescription": "Adjust the content width as a percentage of the window for preview and translation views. Smaller values create larger side margins.",
+    "settings.contentWidthAria": "Content width",
+    "settings.contentWidthNumberAria": "Content width percentage",
   },
 };
 

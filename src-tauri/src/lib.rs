@@ -741,11 +741,17 @@ pub fn run() {
             open_workspace_in_new_window
         ])
         .setup(|app| {
+            let paths = opened_paths_from_args(std::env::args());
+            let has_paths = !paths.is_empty();
+
             if let Some(window) = app.get_webview_window("main") {
-                resize_window_for_display(&window);
+                if has_paths {
+                    let _ = window.maximize();
+                } else {
+                    resize_window_for_display(&window);
+                }
             }
 
-            let paths = opened_paths_from_args(std::env::args());
             store_initial_opened_paths(app.handle(), paths);
             Ok(())
         })

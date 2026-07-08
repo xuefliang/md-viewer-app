@@ -15,6 +15,7 @@
   --app-soft: #f1f1ed;
   --app-accent: #3b6f65;
   --app-shadow: rgba(52, 50, 44, 0.08);
+  --content-width-ratio: 100%;
 }
 
 html,
@@ -1345,7 +1346,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 #translate-error,
 #translate-content,
 #translate-actions {
-  max-width: 860px;
+  width: var(--content-width-ratio, 100%);
   margin-left: auto;
   margin-right: auto;
 }
@@ -1525,6 +1526,27 @@ body.is-resizing-sidebar #sidebar-resizer::after {
   gap: 12px;
 }
 
+.settings-content-width-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#settings-content-width {
+  flex: 1;
+  min-width: 120px;
+}
+
+#settings-content-width-number {
+  width: 64px;
+  text-align: center;
+}
+
+.settings-content-width-unit {
+  color: var(--app-muted);
+  font-size: 13px;
+}
+
 #settings-test-status {
   margin-left: 8px;
   font-size: 12px;
@@ -1544,7 +1566,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 }
 
 #markdown-content {
-  width: min(920px, 100%);
+  width: var(--content-width-ratio, 100%);
   min-height: 100%;
   margin: 0 auto;
   padding: 52px 64px 80px;

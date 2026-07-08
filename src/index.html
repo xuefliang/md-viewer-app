@@ -262,6 +262,35 @@
           </section>
           <section class="settings-section">
             <div class="settings-section-copy">
+              <label for="settings-content-width" data-i18n="settings.contentWidthTitle">内容区宽度</label>
+              <p data-i18n="settings.contentWidthDescription">调整预览和翻译页面内容区占窗口宽度的百分比。数值越小，左右留白越大。</p>
+            </div>
+            <div class="settings-input-row settings-content-width-row">
+              <input
+                id="settings-content-width"
+                type="range"
+                min="50"
+                max="100"
+                step="1"
+                value="100"
+                aria-label="内容区宽度"
+                data-i18n-aria-label="settings.contentWidthAria"
+              />
+              <input
+                id="settings-content-width-number"
+                type="number"
+                min="50"
+                max="100"
+                step="1"
+                value="100"
+                aria-label="内容区宽度百分比"
+                data-i18n-aria-label="settings.contentWidthNumberAria"
+              />
+              <span class="settings-content-width-unit">%</span>
+            </div>
+          </section>
+          <section class="settings-section">
+            <div class="settings-section-copy">
               <h3 data-i18n="settings.typographyTitle">主题字号</h3>
               <p data-i18n="settings.typographyDescription">调整当前主题在预览和 DOCX 导出中的字号。</p>
             </div>

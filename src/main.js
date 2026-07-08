@@ -101,6 +101,11 @@ import {
   normalizePathSeparators,
 } from "./path-utils.js";
 import { applyDefaultSidebarWidth, initResizablePanels } from "./resizable-panels.js";
+import {
+  applyContentWidthRatio,
+  getContentWidthRatio,
+  saveContentWidthRatio,
+} from "./content-width.js";
 
 const searchParams = new URLSearchParams(window.location.search);
 const isScreenshotDemo = searchParams.get("demo") === "screenshot";
@@ -3627,6 +3632,41 @@ function applyTabTheme(tab) {
   return appliedTheme;
 }
 
+function initContentWidthSettings() {
+  const initialRatio = getContentWidthRatio();
+  applyContentWidthRatio(initialRatio);
+
+  const range = document.getElementById("settings-content-width");
+  const number = document.getElementById("settings-content-width-number");
+  if (!range || !number) return;
+
+  const sync = (value) => {
+    const normalized = saveContentWidthRatio(value);
+    range.value = normalized;
+    number.value = normalized;
+    applyContentWidthRatio(normalized);
+  };
+
+  range.addEventListener("input", () => sync(range.value));
+  number.addEventListener("input", () => sync(number.value));
+  number.addEventListener("change", () => sync(number.value));
+
+  const backdrop = document.getElementById("settings-backdrop");
+  if (backdrop) {
+    const observer = new MutationObserver(() => {
+      if (!backdrop.classList.contains("hidden")) {
+        const current = getContentWidthRatio();
+        range.value = current;
+        number.value = current;
+      }
+    });
+    observer.observe(backdrop, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+  }
+}
+
 function initTheme() {
   const select = themeSelect();
   const saved = normalizeThemeId(localStorage.getItem("md-viewer-theme") || "default");
@@ -3830,6 +3870,7 @@ function initTabScrolling() {
 window.addEventListener("DOMContentLoaded", async () => {
   initI18nControls();
   initTheme();
+  initContentWidthSettings();
   initSettingsDialog();
   initTypographySettings();
   initTranslationSettings();
