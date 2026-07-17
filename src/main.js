@@ -420,16 +420,12 @@ function updateWordCountStatus() {
 
 function getReaderScrollY() {
   if (viewMode === "split") {
-    return contentEl()?.scrollTop ?? 0;
+    return readerContentEl()?.scrollTop ?? 0;
   }
   return readerContentEl()?.scrollTop ?? window.scrollY;
 }
 
 function setReaderScrollY(value) {
-  if (viewMode === "split") {
-    if (contentEl()) contentEl().scrollTop = value;
-    return;
-  }
   const reader = readerContentEl();
   if (reader) {
     reader.scrollTop = value;
@@ -441,9 +437,6 @@ function setReaderScrollY(value) {
 function getActiveTopScrollY() {
   if (!activeTabId) return 0;
   if (viewMode === "edit") return editorEl()?.scrollTop ?? 0;
-  if (viewMode === "split") {
-    return Math.max(editorEl()?.scrollTop ?? 0, contentEl()?.scrollTop ?? 0);
-  }
   return readerContentEl()?.scrollTop ?? 0;
 }
 
@@ -466,8 +459,7 @@ function scrollActiveViewToTop() {
   if (viewMode === "edit") {
     scrollElementToTop(editorEl());
   } else if (viewMode === "split") {
-    scrollElementToTop(editorEl());
-    scrollElementToTop(contentEl());
+    scrollElementToTop(readerContentEl());
   } else {
     scrollElementToTop(readerContentEl());
   }
@@ -578,9 +570,16 @@ function syncLineNumberScroll() {
   const editor = editorEl();
   const lineNumbers = editorLineNumbersEl();
   if (!editor || !lineNumbers) return;
-
+  if (viewMode === "split") return;
   lineNumbers.scrollTop = editor.scrollTop;
   syncEditorFindHighlightScroll();
+}
+
+function autoResizeTextarea() {
+  const editor = editorEl();
+  if (!editor) return;
+  editor.style.height = "auto";
+  editor.style.height = editor.scrollHeight + "px";
 }
 
 function updateCurrentEditorLineNumber(lineIndex = null) {
@@ -768,7 +767,7 @@ function syncEditorFindHighlightScroll() {
   const editor = editorEl();
   const highlights = editorFindHighlightsEl();
   if (!editor || !highlights) return;
-
+  if (viewMode === "split") return;
   highlights.scrollTop = editor.scrollTop;
   highlights.scrollLeft = editor.scrollLeft;
 }
@@ -1887,6 +1886,16 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
     editorShellEl()?.classList.remove("hidden");
     contentEl()?.classList.remove("hidden");
   }
+
+  if (nextMode === "split") {
+    autoResizeTextarea();
+  } else if (previousMode === "split") {
+    const editor = editorEl();
+    if (editor) {
+      editor.style.height = "";
+    }
+  }
+
   updateBackToTopButton();
   updateWordCountStatus();
 }
@@ -2191,6 +2200,7 @@ function handleEditorInput() {
   }
   updateEditorControls();
   updateWordCountStatus();
+  if (viewMode === "split") autoResizeTextarea();
 }
 
 async function handleExternalFileChange(path, rawContent) {
