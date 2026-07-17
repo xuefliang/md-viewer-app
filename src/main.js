@@ -576,10 +576,12 @@ function syncLineNumberScroll() {
 }
 
 function autoResizeTextarea() {
-  const editor = editorEl();
-  if (!editor) return;
-  editor.style.height = "auto";
-  editor.style.height = editor.scrollHeight + "px";
+  requestAnimationFrame(() => {
+    const editor = editorEl();
+    if (!editor) return;
+    editor.style.height = "auto";
+    editor.style.height = editor.scrollHeight + "px";
+  });
 }
 
 function updateCurrentEditorLineNumber(lineIndex = null) {
