@@ -458,8 +458,6 @@ function scrollElementToTop(element) {
 function scrollActiveViewToTop() {
   if (viewMode === "edit") {
     scrollElementToTop(editorEl());
-  } else if (viewMode === "split") {
-    scrollElementToTop(readerContentEl());
   } else {
     scrollElementToTop(readerContentEl());
   }
