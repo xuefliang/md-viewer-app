@@ -420,12 +420,17 @@ function updateWordCountStatus() {
 
 function getReaderScrollY() {
   if (viewMode === "split") {
-    return readerContentEl()?.scrollTop ?? 0;
+    return contentEl()?.scrollTop ?? 0;
   }
   return readerContentEl()?.scrollTop ?? window.scrollY;
 }
 
 function setReaderScrollY(value) {
+  if (viewMode === "split") {
+    const el = contentEl();
+    if (el) el.scrollTop = value;
+    return;
+  }
   const reader = readerContentEl();
   if (reader) {
     reader.scrollTop = value;
@@ -437,6 +442,7 @@ function setReaderScrollY(value) {
 function getActiveTopScrollY() {
   if (!activeTabId) return 0;
   if (viewMode === "edit") return editorEl()?.scrollTop ?? 0;
+  if (viewMode === "split") return contentEl()?.scrollTop ?? 0;
   return readerContentEl()?.scrollTop ?? 0;
 }
 
@@ -457,6 +463,9 @@ function scrollElementToTop(element) {
 
 function scrollActiveViewToTop() {
   if (viewMode === "edit") {
+    scrollElementToTop(editorEl());
+  } else if (viewMode === "split") {
+    scrollElementToTop(contentEl());
     scrollElementToTop(editorEl());
   } else {
     scrollElementToTop(readerContentEl());
@@ -568,7 +577,6 @@ function syncLineNumberScroll() {
   const editor = editorEl();
   const lineNumbers = editorLineNumbersEl();
   if (!editor || !lineNumbers) return;
-  if (viewMode === "split") return;
   lineNumbers.scrollTop = editor.scrollTop;
   syncEditorFindHighlightScroll();
 }
@@ -580,6 +588,23 @@ function autoResizeTextarea() {
     editor.style.height = "auto";
     editor.style.height = editor.scrollHeight + "px";
   });
+}
+
+let _splitScrollSyncDepth = 0;
+
+function syncSplitScrollPanels(source, target) {
+  if (_splitScrollSyncDepth > 0) return;
+  if (!source || !target) return;
+  const sourceScrollable = source.scrollHeight - source.clientHeight;
+  const targetScrollable = target.scrollHeight - target.clientHeight;
+  if (sourceScrollable <= 0 || targetScrollable <= 0) {
+    target.scrollTop = 0;
+    return;
+  }
+  _splitScrollSyncDepth++;
+  const ratio = Math.max(0, Math.min(1, source.scrollTop / sourceScrollable));
+  target.scrollTop = Math.round(ratio * targetScrollable);
+  _splitScrollSyncDepth--;
 }
 
 function updateCurrentEditorLineNumber(lineIndex = null) {
@@ -767,7 +792,6 @@ function syncEditorFindHighlightScroll() {
   const editor = editorEl();
   const highlights = editorFindHighlightsEl();
   if (!editor || !highlights) return;
-  if (viewMode === "split") return;
   highlights.scrollTop = editor.scrollTop;
   highlights.scrollLeft = editor.scrollLeft;
 }
@@ -1839,6 +1863,9 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
     requestAnimationFrame(() => {
       setReaderScrollY(previousReaderScrollY);
       setEditorScrollY(previousEditorScrollY);
+      if (viewMode === "split") {
+        syncSplitScrollPanels(contentEl(), editorEl());
+      }
       renderEditorLineNumbers();
       if (isFindOpen() || getFindQuery()) {
         updateReplaceControls(findBarMode);
@@ -1885,15 +1912,6 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
     translateViewEl()?.classList.add("hidden");
     editorShellEl()?.classList.remove("hidden");
     contentEl()?.classList.remove("hidden");
-  }
-
-  if (nextMode === "split") {
-    autoResizeTextarea();
-  } else if (previousMode === "split") {
-    const editor = editorEl();
-    if (editor) {
-      editor.style.height = "";
-    }
   }
 
   updateBackToTopButton();
@@ -2200,7 +2218,6 @@ function handleEditorInput() {
   }
   updateEditorControls();
   updateWordCountStatus();
-  if (viewMode === "split") autoResizeTextarea();
 }
 
 async function handleExternalFileChange(path, rawContent) {
@@ -2272,6 +2289,9 @@ function switchToTab(tabId) {
   requestAnimationFrame(() => {
     setReaderScrollY(tab.scrollY || 0);
     setEditorScrollY(tab.editorScrollY || 0);
+    if (viewMode === "split") {
+      syncSplitScrollPanels(contentEl(), editorEl());
+    }
     renderEditorLineNumbers();
     updateBackToTopButton();
     updateWordCountStatus();
@@ -3457,9 +3477,17 @@ function initBackToTopButton() {
     updateBackToTopButton();
   });
 
+  editorEl()?.addEventListener("scroll", () => {
+    if (viewMode !== "split") return;
+    syncSplitScrollPanels(editorEl(), contentEl());
+  });
+
   contentEl()?.addEventListener("scroll", () => {
     const tab = getActiveTab();
-    if (tab && viewMode === "split") tab.scrollY = getReaderScrollY();
+    if (tab && viewMode === "split") {
+      tab.scrollY = getReaderScrollY();
+      syncSplitScrollPanels(contentEl(), editorEl());
+    }
     updateBackToTopButton();
   });
 }

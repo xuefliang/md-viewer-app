@@ -1118,7 +1118,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 }
 
 #reader-content.reader-mode-split {
-  overflow: auto;
+  overflow: hidden;
 }
 
 #reader-content::-webkit-scrollbar-track {
@@ -1168,8 +1168,8 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 #document-workspace.mode-split {
   display: grid;
   grid-template-columns: minmax(300px, 0.95fr) minmax(0, 1.05fr);
-  height: auto;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 #editor-shell {
@@ -1303,22 +1303,18 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 }
 
 #document-workspace.mode-split #editor-shell {
-  height: auto;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   border-right: 1px solid var(--border);
 }
 
 #document-workspace.mode-split #markdown-content {
   width: 100%;
   max-width: none;
-  height: auto;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   margin: 0;
-  overflow: hidden;
-}
-
-#document-workspace.mode-split #markdown-editor {
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* Translate view */
@@ -2165,7 +2161,7 @@ body.is-resizing-sidebar #sidebar-resizer::after {
 
   #document-workspace.mode-split {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto;
+    grid-template-rows: 1fr 1fr;
   }
 
   #document-workspace.mode-split #editor-shell {
