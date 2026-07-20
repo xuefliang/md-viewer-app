@@ -583,6 +583,9 @@ function createEditorActions({ getEditorElement, applyEditorEdit }) {
     handleEditorShortcut,
     handlePairCompletion,
     adjustMarkdownIndent,
+    toggleMarkdownList,
+    applyInlineMarkdown,
+    applyMarkdownLink,
   };
 }
 
@@ -607,4 +610,118 @@ export function handleEditorKeyDown(event, context) {
 
   if (actions.handleEditorShortcut(event)) return;
   actions.handlePairCompletion(event);
+}
+
+export function handleEditorAction(actionName, context) {
+  const actions = createEditorActions(context);
+  const editor = context.getEditorElement();
+  if (!editor) return;
+
+  const value = editor.value;
+  const selStart = editor.selectionStart;
+  const selEnd = editor.selectionEnd;
+
+  switch (actionName) {
+    case "bold":
+      actions.applyInlineMarkdown("**", "**", "bold");
+      break;
+    case "italic":
+      actions.applyInlineMarkdown("_", "_", "italic");
+      break;
+    case "strikethrough": {
+      const text = value.slice(selStart, selEnd) || "text";
+      const replacement = `~~${text}~~`;
+      context.applyEditorEdit(
+        value.slice(0, selStart) + replacement + value.slice(selEnd),
+        selStart + 2,
+        selStart + 2 + text.length,
+      );
+      break;
+    }
+    case "inline-code":
+      actions.applyInlineMarkdown("`", "`", "code");
+      break;
+    case "link":
+      actions.applyMarkdownLink();
+      break;
+    case "image": {
+      const replacement = "![alt](url)";
+      context.applyEditorEdit(
+        value.slice(0, selStart) + replacement + value.slice(selEnd),
+        selStart + 5,
+        selStart + 8,
+      );
+      break;
+    }
+    case "hr":
+      context.applyEditorEdit(
+        value.slice(0, selStart) + "\n---\n" + value.slice(selEnd),
+        selStart + 1,
+      );
+      break;
+    case "h1": case "h2": case "h3":
+    case "h4": case "h5": case "h6": {
+      const level = Number(actionName[1]);
+      const prefix = "#".repeat(level) + " ";
+      const lineStart = value.lastIndexOf("\n", Math.max(0, selStart - 1)) + 1;
+      const lineEnd = value.indexOf("\n", selEnd);
+      const safeLineEnd = lineEnd === -1 ? value.length : lineEnd;
+      const line = value.slice(lineStart, safeLineEnd);
+      const strippedLine = line.replace(/^#{1,6}\s*/, "");
+      context.applyEditorEdit(
+        value.slice(0, lineStart) + prefix + strippedLine + value.slice(safeLineEnd),
+        lineStart + prefix.length,
+        lineStart + prefix.length + strippedLine.length,
+      );
+      break;
+    }
+    case "ul":
+      actions.toggleMarkdownList("unordered");
+      break;
+    case "ol":
+      actions.toggleMarkdownList("ordered");
+      break;
+    case "task":
+      actions.toggleMarkdownList("task");
+      break;
+    case "code-block":
+      context.applyEditorEdit(
+        value.slice(0, selStart) + "\n```\n\n```" + value.slice(selEnd),
+        selStart + 5,
+      );
+      break;
+    case "table":
+      context.applyEditorEdit(
+        value.slice(0, selStart) + "\n| 标题 | 标题 |\n| --- | --- |\n| 内容 | 内容 |\n" + value.slice(selEnd),
+        selStart + 1,
+      );
+      break;
+    case "quote": {
+      const lineStart2 = value.lastIndexOf("\n", Math.max(0, selStart - 1)) + 1;
+      context.applyEditorEdit(
+        value.slice(0, lineStart2) + "> " + value.slice(lineStart2),
+        selStart + 2,
+        selEnd === selStart ? selStart + 2 : selEnd + 2,
+      );
+      break;
+    }
+    case "math-block":
+      context.applyEditorEdit(
+        value.slice(0, selStart) + "\n$$\n\n$$" + value.slice(selEnd),
+        selStart + 4,
+      );
+      break;
+    case "mermaid":
+      context.applyEditorEdit(
+        value.slice(0, selStart) + "\n```mermaid\ngraph TD\n    A-->B\n```" + value.slice(selEnd),
+        selStart + 1,
+      );
+      break;
+    case "toc":
+      context.applyEditorEdit(
+        value.slice(0, selStart) + "\n[TOC]\n" + value.slice(selEnd),
+        selStart + 1,
+      );
+      break;
+  }
 }

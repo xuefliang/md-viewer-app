@@ -76,7 +76,7 @@ import {
   startTranslationBtn,
   wordCountStatusEl,
 } from "./dom.js";
-import { handleEditorKeyDown as handleMarkdownEditorKeyDown } from "./editor-behavior.js";
+import { handleEditorAction, handleEditorKeyDown as handleMarkdownEditorKeyDown } from "./editor-behavior.js";
 import { copyImageToClipboard } from "./image-clipboard.js";
 import {
   getMarkdownHeadingSourceLines,
@@ -1916,6 +1916,7 @@ function setViewMode(mode, { persist = true, focusEditor = false } = {}) {
 
   updateBackToTopButton();
   updateWordCountStatus();
+  updateFormatToolbar();
 }
 
 let translationRequestId = 0;
@@ -2070,6 +2071,7 @@ function updateEditorControls() {
   }
   document.body.classList.toggle("has-unsaved-documents", tabs.some((item) => item.dirty));
   updateBackToTopButton();
+  updateFormatToolbar();
 }
 
 async function chooseMarkdownSavePath(tab) {
@@ -2190,6 +2192,15 @@ async function saveActiveTab() {
   return saveTab(getActiveTab());
 }
 
+async function saveActiveTabAs() {
+  const tab = getActiveTab();
+  if (!tab) return;
+  const path = await chooseMarkdownSavePath(tab);
+  if (!path) return;
+  tab.path = path;
+  await saveTab(tab);
+}
+
 function handleEditorInput() {
   const tab = getActiveTab();
   const editor = editorEl();
@@ -2285,6 +2296,7 @@ function switchToTab(tabId) {
   updateSidePanel();
   updateEditorControls();
   updateWordCountStatus();
+  updateFormatToolbar();
 
   requestAnimationFrame(() => {
     setReaderScrollY(tab.scrollY || 0);
@@ -2380,6 +2392,7 @@ function resetAllTabs() {
   updateEditorControls();
   updateBackToTopButton();
   updateWordCountStatus();
+  updateFormatToolbar();
 }
 
 function resolveUnsavedDecision(decision) {
@@ -3443,6 +3456,102 @@ function initExportMenu() {
   });
 }
 
+function closeAllMenus() {
+  document.querySelectorAll("#menu-bar .dropdown-menu").forEach((m) => m.classList.add("hidden"));
+  document.querySelectorAll("#menu-bar .menu-btn").forEach((b) => b.classList.remove("open"));
+}
+
+function handleMenuAction(action) {
+  switch (action) {
+    case "new": createMarkdownFile(); break;
+    case "open": openFileDialog(); break;
+    case "open-folder": chooseWorkspace(); break;
+    case "save": saveActiveTab(); break;
+    case "save-as": saveActiveTabAs(); break;
+    case "export-html": handleExportHTML(); break;
+    case "export-docx": handleExportDOCX(); break;
+    case "export-print": handlePrintPDF(); break;
+    case "settings": openSettingsDialog(); break;
+    case "toggle-sidebar": setSidebarCollapsed(
+      !document.getElementById("app-shell")?.classList.contains("sidebar-collapsed")
+    ); break;
+    case "check-update": handleManualUpdateCheck(); break;
+    case "about": window.alert(t("app.name") + " v" + (
+      document.querySelector('meta[name="version"]')?.content || "0.4.1"
+    )); break;
+  }
+}
+
+function initMenuBar() {
+  document.querySelectorAll("#menu-bar .dropdown").forEach((dropdown) => {
+    const btn = dropdown.querySelector(".menu-btn");
+    const menu = dropdown.querySelector(".dropdown-menu");
+    if (!btn || !menu) return;
+
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = !menu.classList.contains("hidden");
+      closeAllMenus();
+      if (!isOpen) {
+        menu.classList.remove("hidden");
+        btn.classList.add("open");
+      }
+    });
+
+    menu.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-menu-action]");
+      if (!item) return;
+      handleMenuAction(item.dataset.menuAction);
+      closeAllMenus();
+    });
+  });
+
+  document.addEventListener("click", closeAllMenus);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeAllMenus();
+  });
+}
+
+function initFormatToolbar() {
+  const toolbar = document.getElementById("fmt-toolbar");
+  if (!toolbar) return;
+
+  toolbar.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-fmt-action]");
+    if (!btn) return;
+
+    toolbar.querySelectorAll(".fmt-dropdown-menu").forEach((m) => m.classList.add("hidden"));
+
+    handleEditorAction(btn.dataset.fmtAction, {
+      getEditorElement: editorEl,
+      applyEditorEdit,
+    });
+
+    editorEl()?.focus();
+  });
+
+  toolbar.querySelectorAll(".fmt-dropdown > .fmt-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = btn.nextElementSibling;
+      if (!menu || !menu.classList.contains("fmt-dropdown-menu")) return;
+      const isOpen = !menu.classList.contains("hidden");
+      toolbar.querySelectorAll(".fmt-dropdown-menu").forEach((m) => m.classList.add("hidden"));
+      if (!isOpen) menu.classList.remove("hidden");
+    });
+  });
+
+  document.addEventListener("click", () => {
+    toolbar.querySelectorAll(".fmt-dropdown-menu").forEach((m) => m.classList.add("hidden"));
+  });
+}
+
+function updateFormatToolbar() {
+  const toolbar = document.getElementById("fmt-toolbar");
+  if (!toolbar) return;
+  toolbar.classList.toggle("hidden", !getActiveTab() || viewMode === "preview");
+}
+
 function updateExportButton() {
   document.getElementById("export-btn").disabled = !activeTabId;
   updateEditorControls();
@@ -3852,6 +3961,21 @@ async function chooseWorkspace() {
   }
 }
 
+async function openFileDialog() {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: t("filter.markdown"), extensions: ["md", "markdown", "mdx", "mkd"] }],
+      title: t("dialog.chooseWorkspace"),
+    });
+    if (typeof selected === "string") {
+      await handleDroppedPath(selected);
+    }
+  } catch (e) {
+    console.error("Failed to open file:", e);
+  }
+}
+
 async function refreshWorkspace() {
   if (!workspace?.root) return;
   await loadWorkspace(workspace.root);
@@ -3916,6 +4040,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   startTranslationBtn()?.addEventListener("click", () => { void startTranslation(); });
   initCopyHandler({ contentEl });
   initExportMenu();
+  initMenuBar();
+  initFormatToolbar();
   initUnsavedDialog();
   initBackToTopButton();
   initEditingControls();

@@ -111,6 +111,38 @@
 
       <main id="reader-pane">
         <div id="tab-bar">
+          <div id="menu-bar">
+            <div class="dropdown" id="file-menu-dropdown">
+              <button id="file-menu-btn" type="button" class="menu-btn" data-i18n="menu.file">文件</button>
+              <div id="file-menu" class="dropdown-menu hidden" role="menu">
+                <button type="button" data-menu-action="new" data-i18n="menu.newFile">新建</button>
+                <button type="button" data-menu-action="open" data-i18n="menu.openFile">打开</button>
+                <button type="button" data-menu-action="open-folder" data-i18n="menu.openFolder">打开文件夹</button>
+                <div class="menu-separator"></div>
+                <button type="button" data-menu-action="save" data-i18n="menu.save">保存</button>
+                <button type="button" data-menu-action="save-as" data-i18n="menu.saveAs">另存为</button>
+                <div class="menu-separator"></div>
+                <button type="button" data-menu-action="export-html" data-i18n="menu.exportHTML">导出 HTML</button>
+                <button type="button" data-menu-action="export-docx" data-i18n="menu.exportDOCX">导出 DOCX</button>
+                <button type="button" data-menu-action="export-print" data-i18n="menu.exportPrint">打印 / PDF</button>
+                <div class="menu-separator"></div>
+                <button type="button" data-menu-action="settings" data-i18n="menu.settings">设置</button>
+              </div>
+            </div>
+            <div class="dropdown" id="view-menu-dropdown">
+              <button id="view-menu-btn" type="button" class="menu-btn" data-i18n="menu.view">视图</button>
+              <div id="view-menu" class="dropdown-menu hidden" role="menu">
+                <button type="button" data-menu-action="toggle-sidebar" data-i18n="menu.sidebar">侧边栏</button>
+              </div>
+            </div>
+            <div class="dropdown" id="help-menu-dropdown">
+              <button id="help-menu-btn" type="button" class="menu-btn" data-i18n="menu.help">帮助</button>
+              <div id="help-menu" class="dropdown-menu hidden" role="menu">
+                <button type="button" data-menu-action="check-update" data-i18n="menu.checkUpdate">检查更新</button>
+                <button type="button" data-menu-action="about" data-i18n="menu.about">关于</button>
+              </div>
+            </div>
+          </div>
           <div id="tab-list"></div>
           <div id="toolbar-actions">
             <div id="view-mode-toggle" aria-label="视图模式" data-i18n-aria-label="viewMode.aria">
@@ -179,6 +211,46 @@
                 <button data-format="docx" data-i18n="export.docx">导出 DOCX</button>
                 <button data-format="print" data-i18n="export.print">打印 / PDF</button>
               </div>
+            </div>
+          </div>
+        </div>
+        <div id="fmt-toolbar" class="hidden">
+          <button class="fmt-btn" data-fmt-action="bold" title="加粗" data-i18n-title="insert.bold"><b>B</b></button>
+          <button class="fmt-btn" data-fmt-action="italic" title="斜体" data-i18n-title="insert.italic"><i>I</i></button>
+          <button class="fmt-btn" data-fmt-action="strikethrough" title="删除线" data-i18n-title="insert.strikethrough"><s>S</s></button>
+          <button class="fmt-btn" data-fmt-action="inline-code" title="行内代码" data-i18n-title="insert.inlineCode"><code>&lt;/&gt;</code></button>
+          <button class="fmt-btn" data-fmt-action="link" title="链接" data-i18n-title="insert.link">🔗</button>
+          <button class="fmt-btn" data-fmt-action="image" title="图片" data-i18n-title="insert.image">🖼</button>
+          <button class="fmt-btn" data-fmt-action="hr" title="水平线" data-i18n-title="insert.hr">—</button>
+          <span class="fmt-sep"></span>
+          <div class="fmt-dropdown">
+            <button class="fmt-btn" data-i18n="insert.heading">标题 ▾</button>
+            <div class="fmt-dropdown-menu hidden">
+              <button data-fmt-action="h1">H1</button>
+              <button data-fmt-action="h2">H2</button>
+              <button data-fmt-action="h3">H3</button>
+              <button data-fmt-action="h4">H4</button>
+              <button data-fmt-action="h5">H5</button>
+              <button data-fmt-action="h6">H6</button>
+            </div>
+          </div>
+          <div class="fmt-dropdown">
+            <button class="fmt-btn" data-i18n="insert.list">列表 ▾</button>
+            <div class="fmt-dropdown-menu hidden">
+              <button data-fmt-action="ul" data-i18n="insert.unorderedList">无序列表</button>
+              <button data-fmt-action="ol" data-i18n="insert.orderedList">有序列表</button>
+              <button data-fmt-action="task" data-i18n="insert.taskList">任务列表</button>
+            </div>
+          </div>
+          <div class="fmt-dropdown">
+            <button class="fmt-btn" data-i18n="insert.codeBlock">插入 ▾</button>
+            <div class="fmt-dropdown-menu hidden">
+              <button data-fmt-action="code-block" data-i18n="insert.codeBlock">代码块</button>
+              <button data-fmt-action="table" data-i18n="insert.table">表格</button>
+              <button data-fmt-action="quote" data-i18n="insert.quote">引用块</button>
+              <button data-fmt-action="math-block" data-i18n="insert.mathBlock">数学公式</button>
+              <button data-fmt-action="mermaid" data-i18n="insert.mermaid">Mermaid</button>
+              <button data-fmt-action="toc" data-i18n="insert.toc">目录</button>
             </div>
           </div>
         </div>
